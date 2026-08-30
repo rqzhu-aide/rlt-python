@@ -186,6 +186,76 @@ inline void Rprintf(const char* fmt, ...) {
 #endif  // RLT_COMPAT_H
 '''
 
+PARAM_APPEND_STAT = r'''
+
+// ---- c-index implementations (ported from r-interface/cindex.cpp;
+// ---- the core survival code calls these, so they must live in the core)
+
+double cindex_d(arma::vec& Y, arma::uvec& Censor, arma::vec& pred) {
+  size_t P = 0;
+  double C = 0;
+  for (size_t i = 0; i < Y.n_elem; i++) {
+    for (size_t j = 0; j < i; j++) {
+      if ((Y(i) > Y(j) and Censor(j) == 0) or
+          (Y(i) < Y(j) and Censor(i) == 0))
+        continue;
+      if (Y(i) == Y(j) and Censor(i) == 0 and Censor(j) == 0) continue;
+      P++;
+      if (Y(i) > Y(j)) {
+        if (pred(i) < pred(j)) C++;
+        if (pred(i) == pred(j)) C += 0.5;
+      } else if (Y(i) < Y(j)) {
+        if (pred(j) < pred(i)) C++;
+        if (pred(i) == pred(j)) C += 0.5;
+      } else {
+        if (Censor(i) == 1 and Censor(j) == 1) {
+          if (pred(i) == pred(j)) C++;
+          else C += 0.5;
+        } else if ((Censor(i) == 1 and pred(i) > pred(j)) or
+                   (Censor(j) == 1 and pred(j) > pred(i))) {
+          C++;
+        } else if (pred(i) == pred(j)) {
+          C += 0.5;
+        }
+      }
+    }
+  }
+  return C / (double)P;
+}
+
+double cindex_i(arma::uvec& Y, arma::uvec& Censor, arma::vec& pred) {
+  size_t P = 0;
+  double C = 0;
+  for (size_t i = 0; i < Y.n_elem; i++) {
+    for (size_t j = 0; j < i; j++) {
+      if ((Y(i) > Y(j) and Censor(j) == 0) or
+          (Y(i) < Y(j) and Censor(i) == 0))
+        continue;
+      if (Y(i) == Y(j) and Censor(i) == 0 and Censor(j) == 0) continue;
+      P++;
+      if (Y(i) > Y(j)) {
+        if (pred(i) < pred(j)) C++;
+        if (pred(i) == pred(j)) C += 0.5;
+      } else if (Y(i) < Y(j)) {
+        if (pred(j) < pred(i)) C++;
+        if (pred(i) == pred(j)) C += 0.5;
+      } else {
+        if (Censor(i) == 1 and Censor(j) == 1) {
+          if (pred(i) == pred(j)) C++;
+          else C += 0.5;
+        } else if ((Censor(i) == 1 and pred(i) > pred(j)) or
+                   (Censor(j) == 1 and pred(j) > pred(i))) {
+          C++;
+        } else if (pred(i) == pred(j)) {
+          C += 0.5;
+        }
+      }
+    }
+  }
+  return C / (double)P;
+}
+'''
+
 PARAM_READ_NEW = r'''  void PARAM_READ(const rlt::CoreParams& q) {
     N = q.n;                    P = q.p;
     ntrees = q.ntrees;          mtry = q.mtry;
@@ -207,6 +277,7 @@ PARAM_READ_NEW = r'''  void PARAM_READ(const rlt::CoreParams& q) {
     ncores = q.ncores;          verbose = q.verbose;
     seed = q.seed;
   };'''
+
 
 RLT_H = r'''//    ----------------------------------------------------------------
 //
@@ -331,6 +402,12 @@ def main() -> int:
     text = utility.read_text()
     text = splice_method(text, "void PARAM_READ_R(List& param)", PARAM_READ_NEW)
     utility.write_text(text)
+
+    # --- Stat_Function.cpp: append c-index implementations ---
+    statf = DST / "core/Stat_Function.cpp"
+    text = statf.read_text()
+    text = text.rstrip() + "\n" + PARAM_APPEND_STAT
+    statf.write_text(text)
 
     # --- top-level headers ---
     (DST / "rlt_compat.h").write_text(RLT_COMPAT)

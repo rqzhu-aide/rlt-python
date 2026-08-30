@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=64", "pybind11"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rlt-forests"
+version = "0.1.0"
+description = "Reinforcement Learning Trees: random forests for regression, classification, and survival analysis (Python port of the RLT R package)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "scipy>=1.10"]
+authors = [{ name = "Ruoqing Zhu" }]
+license = { text = "GPL-3.0-or-later" }
+
+[project.urls]
+Homepage = "https://github.com/rqzhu-aide/rlt-python"
+Source = "https://github.com/rqzhu-aide/rlt-python"
+
+[project.optional-dependencies]
+test = ["pytest", "scikit-learn>=1.3"]
+
+[tool.setuptools]
+packages = ["rlt"]
