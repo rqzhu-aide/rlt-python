@@ -1,0 +1,359 @@
+//  **********************************
+//  Reinforcement Learning Trees (RLT)
+//  Classification
+//  **********************************
+
+// my header file
+# include "RLT.h"
+using namespace arma;
+
+// Find a split on a particular variable
+void Cla_Uni_Split_Cont(Split_Class& TempSplit,
+                        const uvec& obs_id,
+                        const vec& x,
+                        const uvec& Y,
+                        const vec& obs_weight,
+                        const size_t nclass,
+                        double penalty,                        size_t split_rule,
+                        size_t nsplit,
+                        double alpha,
+                        bool useobsweight,
+                        Rand& rngl)
+{
+  size_t N = obs_id.n_elem; // Number of elements in obs_id
+  
+  double temp_score; // Temporary score for comparison
+  
+  // Case 1: Random split
+  if (nsplit > 0)
+  {
+    for (size_t k = 0; k < nsplit; k++)
+    {
+      // Generate a random cut off
+      size_t temp_id = obs_id(rngl.rand_sizet(0, N - 1));
+      double temp_cut = x(temp_id);
+      
+      // Calculate score based on weights
+      temp_score = useobsweight ? cla_uni_cont_score_cut_sub_w(obs_id, x, Y, nclass, temp_cut, obs_weight)
+        : cla_uni_cont_score_cut_sub(obs_id, x, Y, nclass, temp_cut);
+      
+      // Update TempSplit if a better score is found
+      if (temp_score > TempSplit.score)
+      {
+        TempSplit.value = temp_cut;
+        TempSplit.score = temp_score;
+      }
+    }
+    
+    return;
+  }
+  
+  // Sort obs_id based on x values
+  uvec indices = obs_id(sort_index(x(obs_id)));
+  
+  // Check identical values and return if identical
+  if (x(indices(0)) == x(indices(N - 1))) return;
+  
+  // Set low and high index
+  size_t lowindex = 0; // Less equal goes to left
+  size_t highindex = N - 2;
+  
+  // Apply alpha when x can be sorted
+  if (alpha > 0)
+  {
+    size_t nmin = N * alpha < 1 ? 1 : N * alpha; // Size on each side
+    
+    lowindex = nmin - 1; // Less equal goes to left
+    highindex = N - nmin - 1;
+  }
+  
+  // Adjust indices for ties
+  if (x(indices(lowindex)) == x(indices(lowindex + 1)) ||
+      x(indices(highindex)) == x(indices(highindex + 1)))
+  {
+    check_cont_index_sub(lowindex, highindex, x, indices);
+    
+    if (lowindex > highindex)
+    {
+      return;
+    }
+  }
+  
+  // Case 2: Rank split
+  
+  // Case 3: Best split
+  if (nsplit == 0)
+  {
+    // Calculate the best score based on weights
+    if (useobsweight)
+      cla_uni_cont_score_best_sub_w(indices, x, Y, nclass, lowindex, highindex,
+                                    TempSplit.value, TempSplit.score, obs_weight);
+    else
+      cla_uni_cont_score_best_sub(indices, x, Y, nclass, lowindex, highindex,
+                                  TempSplit.value, TempSplit.score);
+    
+    return;
+  }
+}
+
+
+//For rank split
+double cla_uni_cont_score_rank_sub(uvec& indices,
+                                   const uvec& Y,
+                                   size_t nclass,
+                                   size_t a_random_ind)
+{
+  size_t N = indices.size();
+  
+  vec LeftSum(nclass, fill::zeros);
+  vec RightSum(nclass, fill::zeros);
+  
+  //Count the number of observations with a smaller or equal index
+  for (size_t i = 0; i <= a_random_ind; i++)
+    LeftSum(Y(indices(i)))++;
+  
+  //Count other observations
+  for (size_t i = a_random_ind+1; i < N; i++)
+    RightSum(Y(indices(i)))++;
+  
+  return accu( square(LeftSum) ) / (a_random_ind + 1) + 
+         accu( square(RightSum) ) / (N - a_random_ind - 1);
+}
+
+//For weighted rank split
+double cla_uni_cont_score_rank_sub_w(uvec& indices,
+                                     const uvec& Y,
+                                     size_t nclass,
+                                     size_t a_random_ind,
+                                     const vec& obs_weight)
+{
+  size_t N = indices.size();
+  size_t subj;
+  
+  vec LeftSum(nclass, fill::zeros);
+  vec RightSum(nclass, fill::zeros);
+  double Left_w = 0;
+  double Right_w = 0;
+  
+  for (size_t i = 0; i <= a_random_ind; i++){
+    subj = indices(i);
+    LeftSum(Y(subj)) += obs_weight(subj);
+    Left_w += obs_weight(subj);
+  }
+  
+  for (size_t i = a_random_ind+1; i < N; i++){
+    subj = indices(i);
+    RightSum(Y(subj)) += obs_weight(subj);
+    Right_w += obs_weight(subj);
+  }
+  
+  return accu( square(LeftSum) ) / Left_w + 
+         accu( square(RightSum) ) / Right_w;
+}
+
+
+double cla_uni_cont_score_cut_sub(const uvec& obs_id,
+                                  const vec& x,
+                                  const uvec& Y,
+                                  size_t nclass,
+                                  double a_random_cut)
+{
+  size_t N = obs_id.size();
+  size_t subj;
+  
+  vec LeftSum(nclass, fill::zeros);
+  vec RightSum(nclass, fill::zeros);
+  size_t LeftCount = 0;
+  
+  for (size_t i = 0; i < N; i++)
+  {
+    subj = obs_id(i);
+
+    //If x is less than the random cut, go left
+    if ( x(subj) <= a_random_cut )
+    {
+      LeftCount++;
+      LeftSum(Y(subj))++;
+    }else{
+      RightSum(Y(subj))++;
+    }
+  }
+  
+  // if there are some observations in each node
+  if (LeftCount > 0 && LeftCount < N)
+  {
+    return accu( square(LeftSum) ) / LeftCount + 
+           accu( square(RightSum) ) / (N - LeftCount);
+  }
+
+  return -1;
+}
+
+double cla_uni_cont_score_cut_sub_w(const uvec& obs_id,
+                                    const vec& x,
+                                    const uvec& Y,
+                                    size_t nclass,
+                                    double a_random_cut,
+                                    const vec& obs_weight)
+{
+  size_t N = obs_id.size();
+  
+  vec LeftSum(nclass, fill::zeros);
+  vec RightSum(nclass, fill::zeros);
+  double Left_w = 0;
+  double Right_w = 0;
+  
+  for (size_t i = 0; i < N; i++)
+  {
+    size_t subj = obs_id(i);
+    double wi = obs_weight(subj);
+
+    if ( x(subj) <= a_random_cut )
+    {
+      Left_w += wi;
+      LeftSum(Y(subj)) += wi;
+    }else{
+      Right_w += wi;
+      RightSum(Y(subj)) += wi;
+    }
+  }
+  
+  if (Left_w > 0 && Right_w > 0)
+  {
+    return sum( square(LeftSum) ) / Left_w + 
+           sum( square(RightSum) ) / Right_w;
+  }
+  
+  return -1;
+}
+
+
+//For best split
+void cla_uni_cont_score_best_sub(uvec& indices,
+                                 const vec& x,
+                                 const uvec& Y,
+                                 size_t nclass,
+                                 size_t lowindex, 
+                                 size_t highindex, 
+                                 double& temp_cut, 
+                                 double& temp_score)
+{
+  double score = 0;
+  size_t N = indices.size();
+  
+  vec LeftSum(nclass, fill::zeros);
+  vec RightSum(nclass, fill::zeros);
+
+  //Find left or right of the lowindex to start
+  for (size_t i = 0; i <= lowindex; i++)
+    LeftSum(Y(indices(i)))++;
+  
+  for (size_t i = lowindex+1; i < N; i++)
+    RightSum(Y(indices(i)))++;
+
+  //Trying the other splits
+  for (size_t i = lowindex; i <= highindex; i++)
+  {
+    //If there is a tie
+    while (x(indices(i)) == x(indices(i+1))){
+      i++;
+      
+      //Adjust sums
+      LeftSum(Y(indices(i)))++;
+      RightSum(Y(indices(i)))--;
+    }
+    
+    //Calculate score
+    score = accu( square(LeftSum) ) / (i + 1) + 
+            accu( square(RightSum) ) / (N - i - 1);
+    
+    //If the score has improved, find cut and set new score
+    if (score > temp_score)
+    {
+      temp_cut = (x(indices(i)) + x(indices(i + 1)))/2 ;
+      temp_score = score;
+    }
+    
+    //Adjust sums
+    if (i + 1 <= highindex)
+    {
+      LeftSum(Y(indices(i+1)))++;
+      RightSum(Y(indices(i+1)))--;
+    }
+  }
+}
+
+
+//For best split weighted
+void cla_uni_cont_score_best_sub_w(uvec& indices,
+                                   const vec& x,
+                                   const uvec& Y,
+                                   size_t nclass,
+                                   size_t lowindex, 
+                                   size_t highindex, 
+                                   double& temp_cut, 
+                                   double& temp_score,
+                                   const vec& obs_weight)
+{
+  double score = 0;
+  
+  size_t N = indices.size();
+  size_t subj;
+  
+  vec LeftSum(nclass, fill::zeros);
+  vec RightSum(nclass, fill::zeros);
+  double Left_w = 0;
+  double Right_w = 0;
+  
+  for (size_t i = 0; i <= lowindex; i++)
+  {
+    subj = indices(i);
+    LeftSum(Y(subj)) += obs_weight(subj);
+    Left_w += obs_weight(subj);
+  }
+  
+  for (size_t i = lowindex+1; i < N; i++)
+  {
+    subj = indices(i);
+    RightSum(Y(subj)) += obs_weight(subj);
+    Right_w += obs_weight(subj);
+  }
+  
+  for (size_t i = lowindex; i <= highindex; i++)
+  {
+    while (x(indices(i)) == x(indices(i+1))){
+      i++;
+      subj = indices(i);
+      LeftSum(Y(subj)) += obs_weight(subj);
+      RightSum(Y(subj)) -= obs_weight(subj);
+      
+      Left_w += obs_weight(subj);
+      Right_w -= obs_weight(subj);
+    }
+    
+    score = accu( square(LeftSum) ) / Left_w + 
+            accu( square(RightSum) ) / Right_w;
+    
+    if (score > temp_score)
+    {
+      temp_cut = (x(indices(i)) + x(indices(i + 1)))/2 ;
+      temp_score = score;
+    }
+    
+    if (i + 1 <= highindex)
+    {
+      subj = indices(i+1);
+      
+      LeftSum(Y(subj)) += obs_weight(subj);
+      RightSum(Y(subj)) -= obs_weight(subj);
+      
+      Left_w += obs_weight(subj);
+      Right_w -= obs_weight(subj);
+    }
+  }
+}
+
+
+
+
+

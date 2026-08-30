@@ -11,3 +11,6 @@ venv/
 .ipynb_checkpoints/
 _skbuild/
 cmake-build-*/
+build/
+*.o
+*.so
