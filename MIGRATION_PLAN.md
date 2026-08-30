@@ -1,63 +1,80 @@
 # RLT → Python Migration Plan
 
 **Source:** R package `RLT` v6.0.2 (`/home/tez/RLT`, CRAN `teazrq/RLT`)
-**Target:** Python package `rlt` (this repo)
+**Target:** Python package `rlt-forests` (this repo)
 
-## 1. What RLT is
+## Status
 
-Random forest with extensions for **regression, classification, survival, and quantile** analysis:
+| Milestone | State |
+|---|---|
+| M0 scaffolding, build, git | ✅ done |
+| M1 core lift (Rcpp stripped, compiles) | ✅ done — 40 TUs, plain g++/Armadillo/OpenMP |
+| M2 regression vertical slice | ✅ done |
+| M3 classification + survival | ✅ done |
+| M4 reinforcement / linear-comb forests | ⬜ next (C++ already compiled in; needs estimator surface + Comb fit/pred bindings) |
+| M5 importance, kernels, get_one_tree polish, survival bands (U-stat + tensor-product spline in C++) | ⬜ partial (importance + get_one_tree done; kernels + bands pending) |
+| M6 docs, CI, PyPI | ⬜ pending |
 
-- Parallel computing with OpenMP, reproducibility with random seeds
-- Variance and confidence band estimations using U-statistics (jackknife/IJ)
-- Embedded models for selecting splitting variables and constructing linear-combination splits ("reinforcement")
-- Permutation and distribution-based variable importance
-- Observation and variable weights; subject tracking across trees (kkit files / one-hot tree kernels)
+## Locked design decisions (user, 2026-08-30)
 
-**Structure (~19k lines C++ + ~3.5k lines R):**
+1. **RNG: numpy seeding.** `random_state` (int/RandomState) → master seed via
+   `check_random_state`; per-tree seeds derived inside C++ (vendored
+   xoshiro256plus + Lemire bounded ints — deterministic across platforms).
+   No attempt at bit-compatibility with the R package.
+2. **U-statistics: heavy computation in C++.** The IJ/jackknife cores were
+   already Armadillo C++ and are ported. The survival confidence-band
+   machinery needs a **tensor-product spline** — implement carefully, in C++,
+   as its own milestone (M5).
+3. **Full sklearn compatibility from day one.** `RLTRegressor`,
+   `RLTClassifier`, `RLTSurvivalForest` on `BaseEstimator`; `fit/predict/
+   predict_proba/feature_importances_/get_params/set_params`, structured-array
+   survival `y` (`event`/`time`, scikit-survival convention), `score()` =
+   Harrell's c-index. Verified with sklearn `clone`.
+4. **Scope: regression, classification, survival only.** Quantile module
+   excluded from the vendored core.
 
-| Layer | Contents | R/Rcpp coupling |
-|---|---|---|
-| `src/core`, `src/kernels`, `src/{regression,classification,survival,quantile}` | Compute: tree building, split finding, scoring, forests | Armadillo types in data structures; ~5 stray `Rcpp::warning`/`Rcpp::as` calls; dqrng (xoshiro256plus) + `boost::random` distributions for RNG |
-| `src/r-interface` (9 files + RcppExports) | SEXP marshalling of 25 exported functions | Full Rcpp — **replaced wholesale** by a pybind11 layer |
-| `R/*.r` (15 files) | User API: `RLT()`, `predict()`, `importance()`, forest kernels, checks | Pure R — **re-implemented** as the Python API |
+## Architecture
 
-Key facts from recon:
+```
+src/cpp/        vendored compute core (tools/vendor_core.py regenerates
+                idempotently from /home/tez/RLT/src; Rcpp/R/RNG stripped,
+                rlt_compat.h shims: xoshiro256plus, Lemire uniforms,
+                CoreParams struct, Rprintf/rlt_warning)
+src/bindings/   pybind11 layer (_core module): typed fit/pred entry points,
+                numpy <-> armadillo converters, cindex, matched ObsTrack gen
+rlt/            user API: estimators.py (sklearn), _params.py
+tests/          pytest (9 passing) + differential-vs-R scripts
+```
 
-- RNG: master `Rand rng(seed)` draws per-tree seeds (`rand_uvec`), each tree builds with `Rand rngl(seed_vec(nt))`. dqrng's xoshiro256plus + boost distributions. **Cross-language seed reproducibility (R ↔ Python identical trees) is possible only if we port the RNG bit-for-bit** (xoshiro256plus is a simple public algorithm; boost distributions are deterministic given the engine).
-- `Param` class holds all tuning parameters, set from an R list at the interface layer.
-- Trees are stored as flat arrays (`SplitVar`, `SplitValue`, `LeftNode`, `RightNode`, `NodeWeight`, …) — maps naturally to numpy arrays / a dataclass.
-- Linear-combination (reinforcement) forests add `SplitLoad` and use embedded ridge/logistic fits via Armadillo `solve`.
-- The R layer holds real logic: input checking, resample logic (`resample.preset`, `gen_ms_obs_track_mat`), importance computation, survival band estimation (U-statistic machinery in `cindex.r`, `get.surv.band.r`).
+## Verification so far
 
-## 2. Strategy (recommended)
+- 9/9 pytest passing (fit/predict all models, reproducibility, var modes,
+  input validation, string classes)
+- Differential vs R package (same data, same hyper-params, 500 trees):
+  reg pred corr 0.90 (MC noise), survival curves corr 0.995, OOB errors
+  match (reg 0.99 vs 1.00; cla 0.148 vs 0.160; surv 0.448 vs 0.436)
+- 2000-tree best-split run: OOB reg error R 0.9987 vs py 1.0044 — same
+  estimator to Monte-Carlo noise
 
-**Keep the C++ core; replace the binding layer; rewrite the user-facing API in Python.**
+## Known pitfalls (fixed — do not regress)
 
-- **`src/cpp/`** — vendored compute core, lifted from RLT with a thin cleanup pass:
-  - Remove `#include <RcppArmadillo.h>` → `#include <armadillo>` (+ a small `rlt_compat.h` shimming the ~5 stray `Rcpp::*` uses and the RNG objects).
-  - RNG: vendor xoshiro256plus (dqrng's implementation is tiny) + the boost distribution call sites stay boost (header-only) OR get a deterministic shim. Decision point: strict bit-compatibility with R vs. self-consistent Python-only seeding. **Recommendation: bit-compatible**, it makes R↔Python differential testing trivial ("same seed → same forest"), which is the single best correctness tool for the whole migration.
-- **`src/bindings/`** — new pybind11 module exposing the same 25-entry surface as typed C++ functions (matrices in, structured arrays out). No Rcpp anywhere.
-- **`rlt/`** (Python) — user API mirroring the R package:
-  - `RLT(x, y, censor=None, model=..., ...)` returning `RegForest` / `ClaForest` / `SurvForest` / `QuanForest` estimator objects with `.fit`-compatible construction, `predict()`, `importance()`, `get_one_tree()`, kernel functions.
-  - **sklearn-compatible facade** (optional but valuable): `fit`/`predict`/`feature_importances_`, so `rlt` slots into cross-validation pipelines.
-- **`tests/`** — pytest suite, seeded, mirroring `tests/testthat/`; plus **differential tests vs the R package** (run both, compare forests/predictions to tolerance).
+- **ncat convention: 1 = continuous, 0 unused, >1 = categorical.** Passing
+  zeros sent every split into the categorical path (OOB `goright[x]` reads,
+  silent garbage). Estimators default `ncat = ones(p)`.
+- Armadillo aux-memory constructor is column-major-only; never view C-order
+  numpy buffers through it (explicit copies in bindings).
+- Link with `-DARMA_DONT_USE_WRAPPER -llapack -lblas` (no armadillo wrapper
+  lib).
+- `cindex_d/cindex_i` lived in the excluded r-interface but are called by the
+  survival core — reimplemented in vendored `core/Stat_Function.cpp`.
+- RLT's `cindex(pred=risk)`: higher risk = higher event probability.
 
-Packaging: `scikit-build-core` or plain `meson`/setuptools+pybind11, building `rlt._core` from `src/cpp`. CI on GitHub Actions (ubuntu + macOS + Windows).
+## Next steps (M4)
 
-## 3. Milestones
-
-1. **M0 — Scaffolding** *(this week)*: package layout, build system compiling the untouched core with plain Armadillo, CI skeleton.
-2. **M1 — Core lift**: strip Rcpp from core (compat header + RNG vendoring), compile, unit-test RNG bit-compatibility against R.
-3. **M2 — Regression vertical slice**: pybind11 bindings for `RegUniForestFit/Pred` + Python `RLT()` for regression only. End-to-end test vs R output.
-4. **M3 — Classification + quantile + survival**: remaining fit/pred bindings, `Param` surface complete.
-5. **M4 — Linear combination / reinforcement forests** (UniComb variants + embedded models).
-6. **M5 — R-layer features**: importance, kernels, `get_one_tree`, survival bands (U-statistics — port or re-derive in numpy/scipy).
-7. **M6 — sklearn facade, docs, PyPI release.**
-
-## 4. Open questions
-
-1. **RNG fidelity**: strict bit-compatibility with R (vendored xoshiro + boost) vs clean Python seeding (`numpy.random` per tree)? Affects M1 scope.
-2. **U-statistic variance machinery** (`get.surv.band.r`, IJ/jackknife): port the R code to numpy, or also lift the C++ in `core/`?
-3. **sklearn facade** now (shapes the API from M2) or later (M6)?
-4. **Scope**: full feature parity including quantile forests + kernels, or regression/classification/survival first and quantile on demand?
-5. **PyPI name**: `rlt` is taken-ish on PyPI (check); candidates: `rlt-forests`, `reinforcement-learning-trees`, `rltrees`.
+1. Bind `RegUniCombForestFit/Pred`, `ClaUniComb…`, `SurvUniComb…` (SplitLoad
+   matrices in/out).
+2. Estimator support: `linear_comb > 1` routing + `reinforcement=True`
+   embedded models (C++ already builds — only the binding surface is missing).
+3. Then M5: kernels (forest similarity), `get.surv.band` port (tensor-product
+   spline basis + U-statistic covariance → C++).
+4. CI (GH Actions: build matrix linux/mac/win) before PyPI.
