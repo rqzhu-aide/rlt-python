@@ -133,7 +133,53 @@ ax.set_title("Linear-combination kernel - X1 vs X3")
 plt.show()
 ```
 
-## Example 3 - Linear-combination (SIR, no embedded model)
+## Example 3 - OOB self-kernel
+
+The plain self-kernel counts leaf co-occurrence over **all** trees, but
+in-bag observations influence the tree structure (and thus their own leaf
+assignment) — this self-contamination biases the kernel when it is used
+for degrees-of-freedom estimation. The OOB self-kernel (ported from RLT
+6.1.0's `forest.kernel(oob = TRUE)`) counts co-occurrence only from trees
+where **both** observations are out-of-bag. It requires
+`resample_track=True` at fit time and the original training data as `X1`.
+
+```python
+import numpy as np
+from rlt import RLT_reg
+
+rng = np.random.default_rng(1)
+n, p = 120, 5
+X = rng.normal(size=(n, p))
+y = X[:, 0] + X[:, 1] + rng.normal(size=n)
+
+fit = RLT_reg(
+    n_estimators=300, nsplit=2,
+    resample_track=True,  # required for the OOB kernel
+    n_jobs=1, random_state=1,
+)
+fit.fit(X, y)
+
+out = fit.forest_kernel(X, oob=True)
+K, N, C = out["Kernel"], out["N"], out["C"]
+# K = C / N where N > 0, and 0 otherwise
+```
+
+`N[i, j]` counts trees where observations `i` and `j` are both
+out-of-bag; `C[i, j]` counts those trees where they also land in the same
+terminal node; `Kernel = C / N` normalizes them into `[0, 1]`. Pairs that
+are never OOB together (`N = 0`) get `Kernel = 0`.
+
+```python
+print(K.shape)    # (120, 120)
+print(N[0, 1], C[0, 1])   # 48 1
+print(np.trace(K))        # 120.0 — diagonal is 1 wherever N > 0
+```
+
+Use `N` and `C` (integer counts) directly for unbiased DoF-style
+estimators; the normalized `Kernel` is convenient for similarity-based
+weighting.
+
+## Example 4 - Linear-combination (SIR, no embedded model)
 
 Fit a model using linear-combination splits without an embedded forest;
 variables are ranked by marginal screening. This corresponds to R's

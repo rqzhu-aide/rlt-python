@@ -223,6 +223,11 @@ See [Get Started](tutorials/get-started.md) for platform notes.
     K = model.forest_kernel(X_test)               # (n, n) co-occurrence counts
     Kc = model.forest_kernel(X_test, X)           # cross kernel
     Kt = model.forest_kernel(X_test, X, vs_train=True)  # needs resample_track=True
+
+    # OOB self-kernel (RLT >= 6.1.0): co-occurrence only from trees where
+    # both observations are out-of-bag — unbiased for DoF estimation
+    oob = model.forest_kernel(X, oob=True)
+    oob["Kernel"]  # (n, n) normalized co-occurrence in [0, 1]
     ```
 
 ## Where to go next

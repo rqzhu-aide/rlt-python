@@ -1663,6 +1663,130 @@ static py::array_t<int64_t> Kernel_Train_Comb(
   return umat2np(K);
 }
 
+// OOB self-kernel (ported from RLT 6.1.0 kernels/RFKernels.cpp): counts
+// co-occurrence only from trees where both observations are out-of-bag.
+// Returns dict with Kernel (C/N in [0,1]), N (both-OOB count), C (both-OOB
+// and same-leaf count).
+static py::dict Kernel_Self_OOB(const py::list& splitvar,
+                                const py::list& splitvalue,
+                                const py::list& leftnode,
+                                const py::list& rightnode,
+                                const py::list& nodeweight,
+                                const dmat_t& x, const imat_t& ncat,
+                                const imat_t& obstrack, size_t verbose) {
+  arma::field<arma::ivec> SplitVar = list2field_ivec(splitvar);
+  arma::field<arma::vec> SplitValue = list2field_vec(splitvalue);
+  arma::field<arma::uvec> LeftNode = list2field_uvec(leftnode);
+  arma::field<arma::uvec> RightNode = list2field_uvec(rightnode);
+  arma::field<arma::vec> NodeWeight = list2field_vec(nodeweight);
+  arma::mat X = np2mat(x);
+  arma::uvec Ncat = np2uvec(ncat);
+  arma::imat ObsTrack = np2imat(obstrack);
+
+  size_t N = X.n_rows;
+  size_t ntrees = SplitVar.n_elem;
+
+  arma::umat C(N, N, fill::zeros);    // both OOB and share leaf
+  arma::umat Nmat(N, N, fill::zeros); // both OOB
+
+  {
+    py::gil_scoped_release release;
+    for (size_t nt = 0; nt < ntrees; nt++) {
+      uvec oob_idx = find(ObsTrack.col(nt) == 0);
+      size_t n_oob = oob_idx.n_elem;
+      if (n_oob < 2) continue;
+
+      Nmat.submat(oob_idx, oob_idx) += 1;
+
+      Tree_Class OneTree(SplitVar(nt), SplitValue(nt), LeftNode(nt),
+                         RightNode(nt), NodeWeight(nt));
+
+      // proxy ids are local to the OOB subset; real ids index X rows
+      uvec proxy_id = linspace<uvec>(0, n_oob - 1, n_oob);
+      uvec TermNode(n_oob, fill::zeros);
+      Find_Terminal_Node(0, OneTree, X, Ncat, proxy_id, oob_idx, TermNode);
+
+      uvec UniqueNode = unique(TermNode);
+      for (auto j : UniqueNode) {
+        uvec ID = oob_idx(find(TermNode == j));
+        C.submat(ID, ID) += 1;
+      }
+    }
+  }
+
+  arma::mat K = conv_to<arma::mat>::from(C) / conv_to<arma::mat>::from(Nmat);
+  K.replace(datum::nan, 0.0);
+  K.replace(datum::inf, 0.0);
+
+  (void)verbose;
+  py::dict out;
+  out["Kernel"] = mat2np(K);
+  out["N"] = umat2np(Nmat);
+  out["C"] = umat2np(C);
+  return out;
+}
+
+static py::dict Kernel_Self_OOB_Comb(const py::list& splitvar,
+                                     const py::list& splitload,
+                                     const py::list& splitvalue,
+                                     const py::list& leftnode,
+                                     const py::list& rightnode,
+                                     const py::list& nodeweight,
+                                     const dmat_t& x, const imat_t& ncat,
+                                     const imat_t& obstrack, size_t verbose) {
+  arma::field<arma::imat> SplitVar = list2field_imat(splitvar);
+  arma::field<arma::mat> SplitLoad = list2field_mat(splitload);
+  arma::field<arma::vec> SplitValue = list2field_vec(splitvalue);
+  arma::field<arma::uvec> LeftNode = list2field_uvec(leftnode);
+  arma::field<arma::uvec> RightNode = list2field_uvec(rightnode);
+  arma::field<arma::vec> NodeWeight = list2field_vec(nodeweight);
+  arma::mat X = np2mat(x);
+  arma::uvec Ncat = np2uvec(ncat);
+  arma::imat ObsTrack = np2imat(obstrack);
+
+  size_t N = X.n_rows;
+  size_t ntrees = SplitVar.n_elem;
+
+  arma::umat C(N, N, fill::zeros);    // both OOB and share leaf
+  arma::umat Nmat(N, N, fill::zeros); // both OOB
+
+  {
+    py::gil_scoped_release release;
+    for (size_t nt = 0; nt < ntrees; nt++) {
+      uvec oob_idx = find(ObsTrack.col(nt) == 0);
+      size_t n_oob = oob_idx.n_elem;
+      if (n_oob < 2) continue;
+
+      Nmat.submat(oob_idx, oob_idx) += 1;
+
+      Comb_Tree_Class OneTree(SplitVar(nt), SplitLoad(nt), SplitValue(nt),
+                              LeftNode(nt), RightNode(nt), NodeWeight(nt));
+
+      uvec proxy_id = linspace<uvec>(0, n_oob - 1, n_oob);
+      uvec TermNode(n_oob, fill::zeros);
+      Find_Terminal_Node_Comb(0, OneTree, X, Ncat, proxy_id, oob_idx,
+                              TermNode);
+
+      uvec UniqueNode = unique(TermNode);
+      for (auto j : UniqueNode) {
+        uvec ID = oob_idx(find(TermNode == j));
+        C.submat(ID, ID) += 1;
+      }
+    }
+  }
+
+  arma::mat K = conv_to<arma::mat>::from(C) / conv_to<arma::mat>::from(Nmat);
+  K.replace(datum::nan, 0.0);
+  K.replace(datum::inf, 0.0);
+
+  (void)verbose;
+  py::dict out;
+  out["Kernel"] = mat2np(K);
+  out["N"] = umat2np(Nmat);
+  out["C"] = umat2np(C);
+  return out;
+}
+
 // ============================================================
 // Utilities
 // ============================================================
@@ -1888,6 +2012,16 @@ PYBIND11_MODULE(_core, m) {
         py::arg("rightnode"), py::arg("nodeweight"), py::arg("x1"),
         py::arg("x2"), py::arg("ncat"), py::arg("obstrack"),
         py::arg("verbose"));
+
+  m.def("Kernel_Self_OOB", &Kernel_Self_OOB, py::arg("splitvar"),
+        py::arg("splitvalue"), py::arg("leftnode"), py::arg("rightnode"),
+        py::arg("nodeweight"), py::arg("x"), py::arg("ncat"),
+        py::arg("obstrack"), py::arg("verbose"));
+
+  m.def("Kernel_Self_OOB_Comb", &Kernel_Self_OOB_Comb, py::arg("splitvar"),
+        py::arg("splitload"), py::arg("splitvalue"), py::arg("leftnode"),
+        py::arg("rightnode"), py::arg("nodeweight"), py::arg("x"),
+        py::arg("ncat"), py::arg("obstrack"), py::arg("verbose"));
 
   m.def("mc_band", &mc_band_np, py::arg("mar_sd"), py::arg("S"),
         py::arg("alpha"), py::arg("nsim"), py::arg("seed"));

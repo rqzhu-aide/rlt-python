@@ -107,6 +107,12 @@ band["lower"], band["upper"]  # simultaneous survival bands
 K = model.forest_kernel(X_test)          # (n, n) co-occurrence counts
 Kc = model.forest_kernel(X_test, X_train)
 Kt = model.forest_kernel(X_test, X_train, vs_train=True)  # needs resample_track=True
+
+# OOB self-kernel (RLT >= 6.1.0): co-occurrence counted only from trees
+# where both observations are out-of-bag — unbiased for DoF estimation
+out = model.forest_kernel(X_train, oob=True)   # needs resample_track=True
+out["Kernel"]   # (n, n) normalized co-occurrence in [0, 1]
+out["N"], out["C"]  # both-OOB counts / both-OOB same-leaf counts
 ```
 
 ## Parameter reference

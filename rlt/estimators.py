@@ -178,7 +178,7 @@ class _BaseRLT(BaseEstimator):
         keys = keys + self._tree_extra_keys
         return {k: np.asarray(f[k][tree_id]) for k in keys if k in f}
 
-    def forest_kernel(self, X1, X2=None, vs_train=False):
+    def forest_kernel(self, X1, X2=None, vs_train=False, oob=False):
         """Forest similarity kernel (co-occurrence in terminal nodes).
 
         - ``X2=None``: self-kernel of X1, shape (n1, n1).
@@ -186,8 +186,17 @@ class _BaseRLT(BaseEstimator):
         - ``vs_train=True``: training-process kernel — X2 must be the
           training data and the forest must have been fitted with
           ``resample_track=True``; entries weight by inbag counts.
+        - ``oob=True``: OOB self-kernel (RLT >= 6.1.0) — co-occurrence
+          counted only from trees where both observations are
+          out-of-bag, eliminating response-contamination bias for
+          unbiased degrees-of-freedom estimation. Requires
+          ``resample_track=True``, ``X2=None`` and X1 to be the original
+          training data. Returns a dict with keys ``Kernel`` (normalized
+          co-occurrence in [0, 1]), ``N`` (both-OOB tree count) and ``C``
+          (both-OOB, same-leaf count).
 
-        Returns integer counts; divide by n_estimators for frequencies.
+        Without ``oob``, returns integer counts; divide by n_estimators
+        for frequencies.
         """
         check_is_fitted(self, "forest_")
         from . import _core
@@ -203,8 +212,23 @@ class _BaseRLT(BaseEstimator):
             return args
 
         if X2 is None:
+            if oob:
+                if not hasattr(self, "obstrack_"):
+                    raise ValueError(
+                        "oob=True requires resample_track=True at fit time")
+                if X1.shape[0] != self.obstrack_.shape[0]:
+                    raise ValueError(
+                        "oob=True requires X1 to be the original training "
+                        "data")
+                fn = _core.Kernel_Self_OOB_Comb if comb else _core.Kernel_Self_OOB
+                return fn(*prefix(), X1, self.ncat_, self.obstrack_, 0)
             fn = _core.Kernel_Self_Comb if comb else _core.Kernel_Self
             return fn(*prefix(), X1, self.ncat_, 0)
+
+        if oob:
+            raise ValueError(
+                "oob=True is only supported for the self-kernel "
+                "(X2 must be None)")
 
         X2 = self._check_X(X2)
         if not vs_train:
