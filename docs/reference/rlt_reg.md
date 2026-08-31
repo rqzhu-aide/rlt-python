@@ -33,6 +33,7 @@ RLT_reg(
     importance="none",
     resample_track=False,
     var_mode="none",
+    categorical_features=None,
     linear_comb=1,
     linear_comb_method="default",
     alpha=0,
@@ -65,9 +66,10 @@ RLT_reg(
 | `importance` | "none", "permute", "distribute" | "none" | Variable-importance strategy. |
 | `resample_track` | bool | False | Keep the n × ntrees inbag-count matrix (needed for kernels / IJ / jack). |
 | `var_mode` | "none", "matched", "ij", "jack" | "none" | Variance-estimation mode. |
+| `categorical_features` | bool mask (length p), int indices, or None | None | Columns to treat as categorical. Must contain non-negative integer level codes `0..k-1` (≤ 53 levels); replaces R's factor columns. Undeclared columns with ≤ 10 unique values trigger a `UserWarning` hint. |
 | `linear_comb` | int | 1 | Variables combined per split; 1 = axis-aligned; >1 = linear-combination splits (enables reinforcement machinery). |
-| `linear_comb_method` | "default", "sir", "naive", "lm", "pca" | "default" | How combination loadings are computed ("sir" is the regression default). |
-| `alpha` | float | 0 | Reinforcement complexity penalty. |
+| `linear_comb_method` | "default", "sir", "naive", "lm", "pca" or int code 1–4 | "default" | How combination loadings are computed ("sir" = code 4 is the regression default). Unrecognized names or codes emit a `UserWarning` and reset to code 1 (`naive`). |
+| `alpha` | float | 0 | Reinforcement complexity penalty. Clamped to `[0, 0.5]` at fit, like R. |
 | `reinforcement` | bool | False | Use embedded-model (reinforcement) splitting. |
 | `embed_*` | various | see signature | Embedded forest controls (`embed_ntrees`, `embed_mtry`, `embed_nmin`, `embed_nsplit`, `embed_resample_replace`, `embed_resample_prob`, `embed_mute`, `embed_protect`, `embed_threshold`). |
 | `n_jobs` | int | -1 | OpenMP threads (-1 or 0 = all cores). |
@@ -82,6 +84,7 @@ RLT_reg(
 | `predict(X)` | `(n,)` ndarray | Regression predictions. |
 | `predict_var(X, var_mode=None, ...)` | `(pred, var)` | Predictions plus variance; requires `var_mode != "none"` at fit (or explicit compatible mode). Negative variance estimates are set to NaN. |
 | `predict_all_trees(X)` | `(n, n_estimators)` ndarray | Per-tree predictions. |
+| `importance_table()` | `ImportanceTable` | Variable-importance summary (Variable / VI, plus SD / Z / Sig when fitted with `importance != "none"` and `var_mode="matched"`); same as `rlt.importance(model)`. |
 | `forest_kernel(X1, X2=None, vs_train=False)` | integer ndarray | Terminal-node co-occurrence counts (forest similarity kernel); see the [Forest Kernel](../articles/feature-kernel.md) article. |
 | `get_one_tree(tree_id)` | dict of ndarrays | Raw arrays of tree `tree_id` (0-indexed). |
 | `score(X, y)` | float | Returns R² (sklearn convention). |
@@ -94,6 +97,7 @@ RLT_reg(
 | `oob_prediction_` | `(n,)` | Out-of-bag training predictions. |
 | `oob_error_` | float | Out-of-bag MSE. |
 | `feature_importances_` | `(p,)` | Variable importance (when `importance != "none"`). |
+| `var_vi_` | `(p,)` | Per-variable variance of the VI estimates (when `importance != "none"` and `var_mode="matched"`). |
 | `obstrack_` | `(n, n_estimators)` | Inbag-count matrix (when tracked). |
 | `ncat_` | `(p,)` | Per-variable category count (1 = continuous). |
 | `n_features_in_` | int | Number of predictors. |

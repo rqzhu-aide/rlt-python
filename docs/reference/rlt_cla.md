@@ -34,6 +34,7 @@ RLT_cla(
     importance="none",
     resample_track=False,
     var_mode="none",
+    categorical_features=None,
     linear_comb=1,
     linear_comb_method="default",
     alpha=0,
@@ -60,7 +61,9 @@ table — with one classification-specific difference:
 
 | Parameter | Type / values | Default | Description |
 |---|---|---|---|
-| `linear_comb_method` | "default", "lda", "naive", "random", "logistic" | "default" | How combination loadings are computed ("lda" is the classification default). |
+| `linear_comb_method` | "default", "lda", "naive", "random", "logistic" or int code 1–4 | "default" | How combination loadings are computed ("lda" = code 1 is the classification default). Unrecognized names or codes emit a `UserWarning` and reset to code 1 (`lda`). |
+| `alpha` | float | 0 | Clamped to `[0, 0.5]` at fit, like R. |
+| `categorical_features` | bool mask / int indices / None | None | See [`RLT_reg`](rlt_reg.md); same behavior for all three estimators. |
 
 ## Methods
 
@@ -70,6 +73,8 @@ table — with one classification-specific difference:
 | `predict(X)` | labels | Predicted class labels (original label type). |
 | `predict_proba(X)` | `(n, n_classes)` ndarray | Class-membership probabilities. |
 | `predict_log_proba(X)` | `(n, n_classes)` ndarray | Log-probabilities. |
+| `predict_var(X, var_mode=None, ...)` | `(prob, variance)` | Class probabilities (same values as `predict_proba`) plus their `(n, n_classes)` variance; mirrors R's `predict(fit, var.est=TRUE)` for classification. Requires `var_mode != "none"` at fit; negative variance estimates are set to NaN. |
+| `importance_table()` | `ImportanceTable` | Variable-importance summary (Variable / VI, plus SD / Z / Sig when fitted with `importance != "none"` and `var_mode="matched"`); same as `rlt.importance(model)`. |
 | `forest_kernel(X1, X2=None, vs_train=False)` | integer ndarray | Forest similarity kernel. |
 | `get_one_tree(tree_id)` | dict of ndarrays | Raw arrays of tree `tree_id` (0-indexed). |
 | `score(X, y)` | float | Mean accuracy (sklearn convention). |
@@ -84,6 +89,7 @@ table — with one classification-specific difference:
 | `oob_prob_` | `(n, n_classes)` | Out-of-bag class probabilities. |
 | `oob_error_` | float | Out-of-bag misclassification rate. |
 | `feature_importances_` | `(p,)` | Variable importance (when `importance != "none"`). |
+| `var_vi_` | `(p,)` | Per-variable variance of the VI estimates (when `importance != "none"` and `var_mode="matched"`). |
 | `obstrack_` | `(n, n_estimators)` | Inbag-count matrix (when tracked). |
 | `n_features_in_` | int | Number of predictors. |
 

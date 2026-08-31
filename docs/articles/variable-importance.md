@@ -133,3 +133,89 @@ plt.show()
 Both measures recover the design: variables 1–4 (indices 1:6) and
 especially the categorical variable at index 5 carry the signal; the rest
 are noise.
+
+## Variance of variable importance (matched forests)
+
+VI estimates are themselves noisy. Fitting with `var_mode="matched"`
+(mixed with either importance option) makes the forest also return the
+per-variable variance of the VI estimates, so you can judge which
+importances are actually distinguishable from noise — the Python port of
+R's `importance(fit)` output.
+
+```python
+fit_vi = RLT_reg(
+    n_estimators=ntrees,
+    mtry=mtry,
+    min_samples_leaf=nmin,
+    importance="distribute",
+    var_mode="matched",   # per-variable variance of VI
+    n_jobs=1,
+    random_state=1,
+)
+fit_vi.fit(trainX, trainY)
+
+# (p,) variance of each VI estimate
+np.round(fit_vi.var_vi_, 4)
+```
+
+```
+array([ 9.500e-03, -8.670e-02,  1.000e-04,  7.000e-02,  1.830e-02,
+        1.366e-01, -7.000e-04, -2.300e-03,  9.300e-03,  3.140e-02])
+```
+
+The friendlier view is `importance_table()`, which prints `Variable`,
+`VI`, and — when matched variance is available — the standard deviation
+`SD = sqrt(VarVI)`, the standardized statistic `Z = VI / SD`, and a
+significance code (`***` for |Z| ≥ 2.58, `**` for ≥ 1.96, `*` for
+≥ 1.64). The layout mirrors R's `print.importance.RLT`:
+
+```python
+fit_vi.importance_table()
+```
+
+```
+Variable             VI           SD          Z  Sig
+----------------------------------------------------------
+V1              -0.0130     0.097625      -0.13
+V2               0.6622           NA         NA
+V3               0.1547     0.007742      19.98  ***
+V4               0.4933     0.264541       1.86  *
+V5              -0.0993     0.135343      -0.73
+V6               4.1172     0.369655      11.14  ***
+V7              -0.0187           NA         NA
+V8              -0.0093           NA         NA
+V9              -0.0358     0.096533      -0.37
+V10              0.0322     0.177089       0.18
+
+Note: 3 variable(s) with negative variance estimate (SD, Z shown as NA)
+```
+
+Two things to note in this output:
+
+- **Negative variance estimates.** The matched U-statistic variance can
+  come out negative for noise variables. Exactly like R, such variables
+  get `NA` for `SD` and `Z` and an empty significance code, and the
+  table appends a trailing `Note` counting them. A negative variance
+  estimate is itself informative: it flags variables with no stable
+  importance signal.
+- **Without matched variance**, the table simply has no `SD` / `Z` /
+  `Sig` columns — `importance_table()` works for any
+  `importance != "none"` fit and prints just `Variable` and `VI`.
+
+The same table is available through the module-level function
+`rlt.importance(model)`, mirroring R's `importance(fit)` idiom (the
+estimator attribute `.importance` holds the constructor parameter
+string, so the method could not take that name):
+
+```python
+import rlt
+
+rlt.importance(fit_vi)   # same table as fit_vi.importance_table()
+```
+
+!!! note
+    `var_mode="matched"` implies the matched-forest preset: subsampling
+    without replacement at 50% and an even tree count. When importance is
+    requested, use `importance="distribute"` — permutation importance
+    (`"permute"`) is left as-is, but distributed importance is what the
+    variance machinery in the core expects.

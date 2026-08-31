@@ -35,6 +35,12 @@ model.score(X, y)                        # Harrell's c-index
   and `time` — the scikit-survival convention, or
 - a `(time, event)` pair of arrays.
 
+`fit()` validates the response and raises `ValueError` for NaN/Inf in
+`time` (`"NA/Inf not permitted in y"`), NaN in `event`
+(`"NA not permitted in censor"`), or event values outside {0, 1}
+(`"censor must be 0 or 1"`). Note that NaN in `event` can only arrive
+via the tuple path — a structured bool `event` field cannot hold NaN.
+
 ## Constructor
 
 ```python
@@ -49,6 +55,7 @@ RLT_surv(
     resample_track=False,
     var_mode="none",
     split_rule="logrank",
+    categorical_features=None,
     linear_comb=1,
     linear_comb_method="default",
     alpha=0,
@@ -78,7 +85,9 @@ table — with these survival-specific additions:
 |---|---|---|---|
 | `split_rule` | "logrank", "suplogrank", "coxgrad" | "logrank" | Splitting criterion for survival trees. |
 | `time_grid_size` | int | 0 | Number of unique failure times used (0 = all). |
-| `linear_comb_method` | "default", "coxph", "naive" | "default" | How combination loadings are computed ("coxph" is the survival default). |
+| `linear_comb_method` | "default", "coxph", "naive" or int code 1–2 | "default" | How combination loadings are computed ("coxph" = code 1 is the survival default). Unrecognized names or codes emit a `UserWarning` and reset to code 1 (`coxph`). |
+| `alpha` | float | 0 | Clamped to `[0, 0.5]` at fit, like R. |
+| `categorical_features` | bool mask / int indices / None | None | See [`RLT_reg`](rlt_reg.md); same behavior for all three estimators. |
 
 ## Methods
 
@@ -90,6 +99,7 @@ table — with these survival-specific additions:
 | `predict_cumulative_hazard_function(X, band_grid_size=0)` | `(n, T)` ndarray | Cumulative hazard `H(t \| x)`. |
 | `predict_risk(X)` | `(n,)` ndarray | Risk score (cumulative hazard summed over the grid). |
 | `predict_var(X, var_mode=None, band_grid_size=0)` | `(S, cov)` | Survival curves plus per-subject covariance of the CHF, `cov` shape `(n, T, T)`; requires `var_mode != "none"` at fit. |
+| `importance_table()` | `ImportanceTable` | Variable-importance summary (Variable / VI, plus SD / Z / Sig when fitted with `importance != "none"` and `var_mode="matched"`); same as `rlt.importance(model)`. |
 | `score(X, y)` | float | Harrell's c-index (higher is better). |
 | `forest_kernel(X1, X2=None, vs_train=False)` | integer ndarray | Forest similarity kernel. |
 | `get_one_tree(tree_id)` | dict of ndarrays | Raw arrays of tree `tree_id` (0-indexed). |
@@ -108,6 +118,7 @@ grow with `T²`.
 | `oob_hazard_` | `(n, T)` | Out-of-bag predicted cumulative hazard. |
 | `oob_error_` | float | Out-of-bag error (1 − c-index style ranking error used by the core). |
 | `feature_importances_` | `(p,)` | Variable importance (when `importance != "none"`). |
+| `var_vi_` | `(p,)` | Per-variable variance of the VI estimates (when `importance != "none"` and `var_mode="matched"`). |
 | `obstrack_` | `(n, n_estimators)` | Inbag-count matrix (when tracked). |
 | `n_features_in_` | int | Number of predictors. |
 

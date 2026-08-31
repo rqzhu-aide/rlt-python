@@ -136,3 +136,43 @@ fit2.fit(X, y_str)
 fit2.classes_        # array(['neg', 'pos'], dtype='<U3')
 fit2.predict(X[:3])  # e.g. array(['pos', 'neg', 'neg'], dtype='<U3')
 ```
+
+## Prediction variance
+
+Classification forests support variance estimation too — the equivalent
+of R's `predict(fit, var.est = TRUE)`. Fit with `var_mode` (see the
+[survival tutorial](survival-tutorial.md) for the full variance story),
+then call `predict_var()` to get the class probabilities together with
+their variance:
+
+```python
+fit_v = RLT_cla(
+    n_estimators=500,
+    var_mode="matched",
+    n_jobs=1,
+    random_state=1,
+)
+fit_v.fit(trainX, trainY)
+
+probs, variances = fit_v.predict_var(testX)
+
+probs.shape      # (n, n_classes) — same values as predict_proba
+variances.shape  # (n, n_classes)
+```
+
+```python
+np.round(variances[:3], 5)
+```
+
+```
+array([[0.0085 , 0.0085 ],
+       [0.0229 , 0.0229 ],
+       [0.00414, 0.00414]])
+```
+
+With two classes the two variance columns are identical (the second
+probability is one minus the first). Note that negative variance
+estimates are cleaned to `NaN` before returning — check with
+`np.isnan(variances).any()` and drop or inspect those cells rather than
+propagating them into downstream summaries. Reliable variance estimates
+need many trees (e.g., 500+).

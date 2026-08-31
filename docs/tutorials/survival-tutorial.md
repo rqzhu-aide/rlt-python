@@ -48,6 +48,39 @@ y["event"] = event.astype(bool)
 y["time"] = time
 ```
 
+### Response validation
+
+`fit()` validates the response before growing the forest and fails fast
+with a clear message. Missing or invalid values raise a `ValueError`:
+
+```python
+# NaN/Inf in `time` → "NA/Inf not permitted in y"
+y_bad_time = y.copy()
+y_bad_time["time"][0] = np.nan
+
+# NaN in `event` → "NA not permitted in censor"
+# (only via the (time, event) tuple path — the structured bool
+#  field cannot hold NaN)
+event_nan = np.concatenate([[np.nan], np.ones(n - 1)])
+
+# event values outside {0, 1} → "censor must be 0 or 1"
+event_bad = np.full(n, 2.0)
+
+for y_try in (y_bad_time, (y["time"], event_nan), (y["time"], event_bad)):
+    try:
+        RLT_surv(n_estimators=20, n_jobs=1, random_state=0).fit(X, y_try)
+    except ValueError as err:
+        print("ValueError:", err)
+```
+
+```
+ValueError: NA/Inf not permitted in y
+ValueError: NA not permitted in censor
+ValueError: censor must be 0 or 1
+```
+
+Clean your data first — impute, drop, or re-encode before fitting.
+
 ## Basic usage
 
 Fit a survival forest with `RLT_surv`. By default `split_rule="logrank"`.

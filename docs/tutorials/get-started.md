@@ -61,6 +61,53 @@ model.fit(X, y)
 print(f"OOB error: {model.oob_error_:.3f}")
 ```
 
+## Categorical predictors
+
+`rlt` does not consume R-style factors or pandas `Categorical` columns
+directly. Instead, declare categorical columns with the
+`categorical_features` constructor parameter — the sklearn-style
+replacement for R's `data.frame` factor path — and pass the columns as
+**non-negative integer level codes** (`0, 1, ..., k-1`):
+
+```python
+import numpy as np
+from rlt import RLT_reg
+
+rng = np.random.default_rng(0)
+n = 100
+X = np.hstack([
+    rng.normal(size=(n, 2)),           # continuous columns 0-1
+    rng.integers(0, 3, size=(n, 1)),   # 3-level categorical, column 2
+    rng.integers(0, 2, size=(n, 1)),   # binary categorical, column 3
+])
+y = X[:, 0] + np.isin(X[:, 2], [1, 2]) + rng.normal(size=n)
+
+# Integer indices of the categorical columns...
+model = RLT_reg(n_estimators=100, categorical_features=[2, 3],
+                random_state=0).fit(X, y)
+
+# ...or an equivalent boolean mask of length p
+model = RLT_reg(n_estimators=100,
+                categorical_features=[False, False, True, True],
+                random_state=0).fit(X, y)
+
+model.ncat_  # array([1, 1, 3, 2]) — 1 = continuous, k = k-level categorical
+```
+
+Rules to keep in mind:
+
+- Declared columns must be non-negative integer codes `0..k-1` —
+  anything else raises a `ValueError`. Encode with
+  `pandas.factorize()` or `sklearn.preprocessing.OrdinalEncoder`
+  first (both produce 0-based codes by default).
+- A categorical column may have at most **53 levels** (`ValueError`
+  beyond that, matching the R package).
+- If you *forget* to declare a categorical column and it has few unique
+  values (≤ 10), `fit()` emits a `UserWarning` hinting that it may be
+  categorical — worth a look before you trust continuous splits on it.
+- Undeclared columns are treated as continuous, which is safe for
+  genuinely numeric low-cardinality data.
+
 ## Platform notes
 
 ### Linux

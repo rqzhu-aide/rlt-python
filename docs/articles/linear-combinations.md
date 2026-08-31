@@ -67,6 +67,56 @@ Test MSE: 0.2817
 Linear combination size: 3
 ```
 
+## Method names and integer codes
+
+`linear_comb_method` also accepts the integer method codes used by the R
+package's core — handy when translating R code or tuning over methods
+programmatically. The names and codes are equivalent:
+
+| Model | Names | Codes |
+|---|---|---|
+| `RLT_reg` | `naive`, `lm`, `pca`, `sir` | 1, 2, 3, 4 |
+| `RLT_cla` | `lda`, `naive`, `random`, `logistic` | 1, 2, 3, 4 |
+| `RLT_surv` | `coxph`, `naive` | 1, 2 |
+
+```python
+fit_code = RLT_reg(
+    n_estimators=200,
+    min_samples_leaf=5,
+    mtry=3,
+    nsplit=3,
+    linear_comb=3,
+    linear_comb_method=4,  # integer code for "sir"
+    n_jobs=1,
+    random_state=3,
+)
+fit_code.fit(trainX, trainY)
+
+# identical forest to linear_comb_method="sir"
+np.array_equal(fit_code.predict(testX), fit_lc.predict(testX))  # True
+```
+
+Like R, an unrecognized method name (or an out-of-range integer) does
+not error: it emits a `UserWarning` and resets to code 1 — `naive` for
+regression, `lda` for classification, `coxph` for survival:
+
+```python
+fit_bad = RLT_reg(
+    n_estimators=200,
+    mtry=3,
+    nsplit=3,
+    linear_comb=3,
+    linear_comb_method="ridge",  # not a valid method name
+    n_jobs=1,
+    random_state=3,
+)
+fit_bad.fit(trainX, trainY)
+# UserWarning: linear_comb_method not recognized. Use 'naive', 'lm',
+#              'pca', or 'sir'. Resetting to naive
+
+fit_bad.params_.linear_comb_method  # 1
+```
+
 ## Other Model Types
 
 For classification, use `RLT_cla` with methods such as `"lda"`, `"naive"`,
