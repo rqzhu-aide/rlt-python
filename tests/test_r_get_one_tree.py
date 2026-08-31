@@ -38,7 +38,7 @@ def _tree_depth(tree):
 def test_get_one_tree_returns_dict_for_regression():
     # expect_is(tree, "data.frame") -> dict of raw node arrays
     d = generate_simple_regression(n=80, p=10)
-    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     tree = fit.get_one_tree(0)
     assert isinstance(tree, dict)
     for key in ("SplitVar", "SplitValue", "LeftNode", "RightNode", "NodeWeight", "NodeAve"):
@@ -48,7 +48,7 @@ def test_get_one_tree_returns_dict_for_regression():
 def test_get_one_tree_regression_has_correct_fields():
     # expected_cols <- c("Node", "Depth", "Split", "Value", "n")
     d = generate_simple_regression(n=80, p=10)
-    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     tree = fit.get_one_tree(0)
     # Node -> implicit array index; Split -> SplitVar; Value -> SplitValue;
     # n -> NodeWeight; Depth -> recomputable from LeftNode/RightNode
@@ -59,14 +59,14 @@ def test_get_one_tree_regression_has_correct_fields():
 def test_get_one_tree_regression_node_column_is_0_indexed():
     # R: tree$Node[1] == 1 (1-based); Python root node index is 0
     d = generate_simple_regression(n=80, p=10)
-    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     tree = fit.get_one_tree(0)
     assert len(tree["SplitVar"]) > 0  # node 0 exists
 
 
 def test_get_one_tree_regression_depth_starts_at_0():
     d = generate_simple_regression(n=80, p=10)
-    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     depth = _tree_depth(fit.get_one_tree(0))
     assert depth[0] == 0
 
@@ -74,7 +74,7 @@ def test_get_one_tree_regression_depth_starts_at_0():
 def test_get_one_tree_regression_has_terminal_nodes():
     # R: any(tree$Split == "*"); terminal nodes have SplitVar == -1
     d = generate_simple_regression(n=80, p=10)
-    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     tree = fit.get_one_tree(0)
     assert np.any(np.asarray(tree["SplitVar"]) < 0)
 
@@ -82,7 +82,7 @@ def test_get_one_tree_regression_has_terminal_nodes():
 def test_get_one_tree_regression_leaf_value_is_numeric():
     # R checks the Value column exists for all nodes -> SplitValue numeric array
     d = generate_simple_regression(n=80, p=10)
-    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     tree = fit.get_one_tree(0)
     values = np.asarray(tree["SplitValue"])
     assert values.dtype == np.float64
@@ -90,14 +90,14 @@ def test_get_one_tree_regression_leaf_value_is_numeric():
 
 def test_get_one_tree_regression_n_column_is_positive():
     d = generate_simple_regression(n=80, p=10)
-    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     tree = fit.get_one_tree(0)
     assert np.all(np.asarray(tree["NodeWeight"]) > 0)
 
 
 def test_get_one_tree_regression_root_node_n_equals_training_n():
     d = generate_simple_regression(n=80, p=10)
-    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     tree = fit.get_one_tree(0)
     assert tree["NodeWeight"][0] == d["n"]
 
@@ -105,7 +105,7 @@ def test_get_one_tree_regression_root_node_n_equals_training_n():
 def test_get_one_tree_regression_split_var_references_x_columns():
     # R checks Split labels are X colnames; Python stores 0-based indices
     d = generate_simple_regression(n=80, p=10)
-    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     tree = fit.get_one_tree(0)
     split_nodes = np.asarray(tree["SplitVar"])
     split_nodes = split_nodes[split_nodes >= 0]
@@ -114,7 +114,7 @@ def test_get_one_tree_regression_split_var_references_x_columns():
 
 def test_get_one_tree_returns_dict_for_classification():
     d = generate_classification_data(n=80, p=10)
-    fit = RLT_cla(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_cla(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     tree = fit.get_one_tree(0)
     assert isinstance(tree, dict)
     for key in ("SplitVar", "SplitValue", "LeftNode", "RightNode", "NodeWeight"):
@@ -123,7 +123,7 @@ def test_get_one_tree_returns_dict_for_classification():
 
 def test_get_one_tree_classification_has_correct_fields():
     d = generate_classification_data(n=80, p=10)
-    fit = RLT_cla(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_cla(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     tree = fit.get_one_tree(0)
     assert len(tree["SplitVar"]) == len(tree["NodeWeight"])
 
@@ -131,14 +131,14 @@ def test_get_one_tree_classification_has_correct_fields():
 def test_get_one_tree_classification_nodeprob_is_stored_in_forest():
     # R: expect_false(is.null(fit$FittedForest$NodeProb))
     d = generate_classification_data(n=80, p=10)
-    fit = RLT_cla(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_cla(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     assert "NodeProb" in fit.forest_
     assert len(fit.forest_["NodeProb"]) == 30
 
 
 def test_get_one_tree_classification_root_node_n_equals_training_n():
     d = generate_classification_data(n=80, p=10)
-    fit = RLT_cla(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_cla(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     tree = fit.get_one_tree(0)
     assert tree["NodeWeight"][0] == d["n"]
 
@@ -151,8 +151,7 @@ def test_get_one_tree_regression_lc_tree_has_splitload_in_forest():
         linear_comb=3,
         linear_comb_method="naive",
         n_jobs=2,
-        verbose=0,
-    ).fit(d["X"], d["y"])
+        verbose=0, random_state=1).fit(d["X"], d["y"])
     assert "SplitLoad" in fit.forest_
 
 
@@ -163,8 +162,7 @@ def test_get_one_tree_classification_lc_tree_works():
         linear_comb=3,
         linear_comb_method="lda",
         n_jobs=2,
-        verbose=0,
-    ).fit(d["X"], d["y"])
+        verbose=0, random_state=1).fit(d["X"], d["y"])
     tree = fit.get_one_tree(0)
     assert isinstance(tree, dict)
     assert len(tree["SplitVar"]) > 0
@@ -175,14 +173,14 @@ def test_get_one_tree_errors_on_tree_index_negative():
     # equivalent out-of-range index in 0-based Python indexing is -1...
     # negative indices do NOT raise, so use n_estimators (first invalid >= 0)
     d = generate_simple_regression(n=80, p=10)
-    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     with pytest.raises(IndexError):
         fit.get_one_tree(30)
 
 
 def test_get_one_tree_errors_on_tree_index_above_ntrees():
     d = generate_simple_regression(n=80, p=10)
-    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     # R index 31 (1-based) == Python index 30 (0-based)
     with pytest.raises(IndexError):
         fit.get_one_tree(30)
@@ -191,7 +189,7 @@ def test_get_one_tree_errors_on_tree_index_above_ntrees():
 def test_get_one_tree_works_for_all_trees_in_forest():
     d = generate_simple_regression(n=80, p=5)
     n_estimators = 5
-    fit = RLT_reg(n_estimators=n_estimators, n_jobs=2, verbose=0).fit(
+    fit = RLT_reg(n_estimators=n_estimators, n_jobs=2, verbose=0, random_state=1).fit(
         d["X"], d["y"]
     )
     for i in range(n_estimators):
@@ -205,7 +203,7 @@ def test_get_one_tree_uses_zero_based_column_indices_without_names():
     rng = np.random.default_rng(42)
     X = rng.normal(size=(80, 5))
     y = X[:, 0] + rng.normal(size=80)
-    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0).fit(X, y)
+    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(X, y)
     tree = fit.get_one_tree(0)
     split_nodes = np.asarray(tree["SplitVar"])
     split_nodes = split_nodes[split_nodes >= 0]
@@ -215,7 +213,7 @@ def test_get_one_tree_uses_zero_based_column_indices_without_names():
 
 def test_get_one_tree_depth_increases_monotonically_along_tree_paths():
     d = generate_simple_regression(n=80, p=10)
-    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_reg(n_estimators=30, n_jobs=2, verbose=0, random_state=1).fit(d["X"], d["y"])
     depth = _tree_depth(fit.get_one_tree(0))
     assert depth[0] == 0
     assert depth.max() > 0

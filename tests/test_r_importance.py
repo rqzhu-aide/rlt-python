@@ -30,11 +30,13 @@ def d_cla():
 
 def _fit_reg(X, y, **kw):
     kw.setdefault("n_jobs", 2)
+    kw.setdefault("random_state", 1)
     return RLT_reg(**kw).fit(X, y)
 
 
 def _fit_cla(X, y, **kw):
     kw.setdefault("n_jobs", 2)
+    kw.setdefault("random_state", 1)
     return RLT_cla(**kw).fit(X, y)
 
 

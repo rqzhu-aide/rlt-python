@@ -20,6 +20,7 @@ def d():
 
 def _fit(X, y, **kw):
     kw.setdefault("n_jobs", 2)
+    kw.setdefault("random_state", 1)
     return RLT_surv(**kw).fit(X, y)
 
 
