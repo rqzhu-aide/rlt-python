@@ -1,0 +1,5 @@
+# include everything needed to build from sdist
+include README.md LICENSE NOTICE pyproject.toml setup.py
+recursive-include src *.h *.hpp *.cpp
+recursive-include tests *.py
+recursive-include tools *.py

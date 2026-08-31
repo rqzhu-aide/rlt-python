@@ -3,78 +3,69 @@
 **Source:** R package `RLT` v6.0.2 (`/home/tez/RLT`, CRAN `teazrq/RLT`)
 **Target:** Python package `rlt-forests` (this repo)
 
-## Status
+## Status — ALL CORE MILESTONES COMPLETE
 
 | Milestone | State |
 |---|---|
 | M0 scaffolding, build, git | ✅ done |
-| M1 core lift (Rcpp stripped, compiles) | ✅ done — 40 TUs, plain g++/Armadillo/OpenMP |
+| M1 core lift (Rcpp stripped, compiles) | ✅ done — 40+ TUs, plain g++/Armadillo/OpenMP |
 | M2 regression vertical slice | ✅ done |
 | M3 classification + survival | ✅ done |
-| M4 reinforcement / linear-comb forests | ⬜ next (C++ already compiled in; needs estimator surface + Comb fit/pred bindings) |
-| M5 importance, kernels, get_one_tree polish, survival bands (U-stat + tensor-product spline in C++) | ⬜ partial (importance + get_one_tree done; kernels + bands pending) |
-| M6 docs, CI, PyPI | ⬜ pending |
+| M4 reinforcement / linear-comb forests | ✅ done — all three models, differential vs R |
+| M5 importance + kernels + survival bands | ✅ done — incl. C++ tensor-product spline |
+| M6 docs, CI, PyPI prep | ✅ done — CI green py3.10–3.13, sdist verified from scratch |
+
+Remaining (optional, post-0.2.0): macOS/Windows wheels via cibuildwheel;
+`get.one.tree` printing polish; PyPI upload when ready for release.
 
 ## Locked design decisions (user, 2026-08-30)
 
-1. **RNG: numpy seeding.** `random_state` (int/RandomState) → master seed via
-   `check_random_state`; per-tree seeds derived inside C++ (vendored
-   xoshiro256plus + Lemire bounded ints — deterministic across platforms).
-   No attempt at bit-compatibility with the R package.
-2. **U-statistics: heavy computation in C++.** The IJ/jackknife cores were
-   already Armadillo C++ and are ported. The survival confidence-band
-   machinery needs a **tensor-product spline** — implement carefully, in C++,
-   as its own milestone (M5).
-3. **Full sklearn compatibility from day one.** `RLTRegressor`,
-   `RLTClassifier`, `RLTSurvivalForest` on `BaseEstimator`; `fit/predict/
-   predict_proba/feature_importances_/get_params/set_params`, structured-array
-   survival `y` (`event`/`time`, scikit-survival convention), `score()` =
-   Harrell's c-index. Verified with sklearn `clone`.
-4. **Scope: regression, classification, survival only.** Quantile module
-   excluded from the vendored core.
+1. **RNG: numpy seeding.** `random_state` → master seed; per-tree seeds
+   inside C++ (vendored xoshiro256plus + Lemire). Not bit-compatible with R.
+2. **U-statistics: heavy computation in C++.** IJ/jack cores were already
+   C++; survival bands got a NEW C++ tensor-product penalized B-spline
+   smoother (`src/bindings/rlt_tp_smooth.cpp`) replacing mgcv `te(i,j)`,
+   with GCV lambda selection — same statistical pipeline as R.
+3. **Full sklearn compatibility.** `RLTRegressor`/`RLTClassifier`/
+   `RLTSurvivalForest` on `BaseEstimator`; structured-array survival y;
+   `score()` = Harrell's c-index. Verified with `clone`.
+4. **Scope: regression, classification, survival only.**
 
 ## Architecture
 
 ```
 src/cpp/        vendored compute core (tools/vendor_core.py regenerates
-                idempotently from /home/tez/RLT/src; Rcpp/R/RNG stripped,
-                rlt_compat.h shims: xoshiro256plus, Lemire uniforms,
-                CoreParams struct, Rprintf/rlt_warning)
-src/bindings/   pybind11 layer (_core module): typed fit/pred entry points,
-                numpy <-> armadillo converters, cindex, matched ObsTrack gen
-rlt/            user API: estimators.py (sklearn), _params.py
-tests/          pytest (9 passing) + differential-vs-R scripts
+                idempotently from /home/tez/RLT/src)
+src/bindings/   pybind11 layer (_core): 12 fit/pred entry points
+                (Uni+Comb x reg/cla/surv), 6 kernels, cindex, mc_band,
+                rlt_tp_smooth, matched ObsTrack gen
+rlt/            estimators.py (sklearn), bands.py (get_surv_band), _params.py
+tests/          22 tests: basic, comb, importance/kernels/bands
+.github/        CI: ubuntu matrix py3.10-3.13 (apt armadillo/lapack/blas)
 ```
 
-## Verification so far
+## Verification summary
 
-- 9/9 pytest passing (fit/predict all models, reproducibility, var modes,
-  input validation, string classes)
-- Differential vs R package (same data, same hyper-params, 500 trees):
-  reg pred corr 0.90 (MC noise), survival curves corr 0.995, OOB errors
-  match (reg 0.99 vs 1.00; cla 0.148 vs 0.160; surv 0.448 vs 0.436)
-- 2000-tree best-split run: OOB reg error R 0.9987 vs py 1.0044 — same
-  estimator to Monte-Carlo noise
+- 22/22 pytest, also in a fresh venv from the sdist
+- CI green on Python 3.10/3.11/3.12/3.13 (ubuntu-latest)
+- Differential vs R package: OOB errors match to MC noise on reg/cla/surv
+  (500 and 2000-tree runs); LC-split loadings recover planted directions
+- MC band critical values: py 2.8432 vs R 2.8415 (50k sims, different RNG)
+- embed VI recovers {0,1} on y = x0 + x1² DGP; kernel matrix invariants hold
 
 ## Known pitfalls (fixed — do not regress)
 
-- **ncat convention: 1 = continuous, 0 unused, >1 = categorical.** Passing
-  zeros sent every split into the categorical path (OOB `goright[x]` reads,
-  silent garbage). Estimators default `ncat = ones(p)`.
-- Armadillo aux-memory constructor is column-major-only; never view C-order
-  numpy buffers through it (explicit copies in bindings).
-- Link with `-DARMA_DONT_USE_WRAPPER -llapack -lblas` (no armadillo wrapper
-  lib).
-- `cindex_d/cindex_i` lived in the excluded r-interface but are called by the
-  survival core — reimplemented in vendored `core/Stat_Function.cpp`.
+- **ncat convention: 1 = continuous.** Zeros send splits into the
+  categorical path (OOB `goright[x]` reads, silent garbage).
+- **embed_protect must be ≥ 1** when reinforcement/Comb is active
+  (default None → ceil(log(n)); a 0 underflows `var_id.subvec(0, -1)`).
+- Armadillo aux-memory constructor is column-major-only; numpy buffers
+  must be copied explicitly (see np2mat).
+- Link with `-DARMA_DONT_USE_WRAPPER -llapack -lblas`.
+- `cindex_d/cindex_i` live in the vendored core (Stat_Function.cpp).
 - RLT's `cindex(pred=risk)`: higher risk = higher event probability.
-
-## Next steps (M4)
-
-1. Bind `RegUniCombForestFit/Pred`, `ClaUniComb…`, `SurvUniComb…` (SplitLoad
-   matrices in/out).
-2. Estimator support: `linear_comb > 1` routing + `reinforcement=True`
-   embedded models (C++ already builds — only the binding surface is missing).
-3. Then M5: kernels (forest similarity), `get.surv.band` port (tensor-product
-   spline basis + U-statistic covariance → C++).
-4. CI (GH Actions: build matrix linux/mac/win) before PyPI.
+- mc_band alpha: `sd * q.t()` outer-product shape (1×d per alpha level).
+- R var.mode presets mirrored: matched → subsample 0.5/even trees/
+  distribute importance; IJ/jack → bootstrap + obs_track.
+- sdist needs MANIFEST.in (headers aren't included by default).
+- CI expressions: `${{ matrix.python-version }}` (dot, not dash).
