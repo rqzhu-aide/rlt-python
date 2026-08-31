@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from rlt import RLT_surv
-from tests.helpers import generate_survival_data
+from helpers import generate_survival_data
 
 
 def test_survival_model_fits_and_returns_correct_class():

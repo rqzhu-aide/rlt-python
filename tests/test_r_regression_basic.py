@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from rlt import RLT_reg
-from tests.helpers import generate_simple_regression, generate_mixed_feature_regression
+from helpers import generate_simple_regression, generate_mixed_feature_regression
 
 
 def test_regression_fits_and_returns_correct_class():

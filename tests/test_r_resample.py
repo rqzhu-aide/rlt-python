@@ -3,7 +3,7 @@
 import numpy as np
 
 from rlt import RLT_reg, RLT_cla, RLT_surv
-from tests.helpers import (
+from helpers import (
     generate_simple_regression,
     generate_classification_data,
     generate_survival_data,

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from rlt import RLT_cla
-from tests.helpers import generate_classification_data, generate_mixed_feature_regression
+from helpers import generate_classification_data, generate_mixed_feature_regression
 
 
 def test_classification_fits_and_returns_correct_class():

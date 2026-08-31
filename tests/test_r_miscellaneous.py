@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from rlt import RLT_reg, RLT_cla
-from tests.helpers import generate_simple_regression, generate_classification_data
+from helpers import generate_simple_regression, generate_classification_data
 
 
 # --- Reproducibility ---
