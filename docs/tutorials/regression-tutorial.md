@@ -97,8 +97,8 @@ print(f"Test MSE:  {mse_test:.4f}")
 ```
 
 ```
-Train MSE: 2.4331
-Test MSE:  4.4573
+Train MSE: 2.3501
+Test MSE:  4.3141
 ```
 
 ## Inspect
@@ -108,8 +108,8 @@ print(fit)
 ```
 
 ```
-RLT_reg(importance='permute', mtry=5, n_jobs=1, n_estimators=200,
-        nsplit=0, random_state=1, resample_prob=0.8)
+RLT_reg(importance='permute', mtry=5, n_estimators=200, n_jobs=1,
+        random_state=1, resample_prob=0.8)
 ```
 
 Fitted attributes worth knowing:

@@ -56,8 +56,8 @@ np.round(testX[:, [0, 2]], 3)
 ```
 
 ```
-array([[-0.414, -0.383],
-       [ 0.37 ,  0.446]])
+array([[-0.384, -0.385],
+       [ 0.315,  0.377]])
 ```
 
 ## Fit and Predict with Variance
@@ -104,8 +104,8 @@ print(f"Number of plotted timepoints: {int(plot_id.sum())}")
 
 ```
 Plot time range: t <= 2
-Minimum at-risk in plotted range: 111
-Number of plotted timepoints: 66
+Minimum at-risk in plotted range: 33
+Number of plotted timepoints: 136
 ```
 
 ## Simultaneous Confidence Band

@@ -97,8 +97,8 @@ print(f"Test accuracy:  {acc_test:.4f}")
 ```
 
 ```
-Train accuracy: 0.7375
-Test accuracy:  0.8000
+Train accuracy: 0.7875
+Test accuracy:  0.7500
 ```
 
 ## Inspect the fitted object
@@ -108,8 +108,8 @@ print(fit)
 ```
 
 ```
-RLT_cla(importance='permute', mtry=5, n_jobs=1, n_estimators=200,
-        nsplit=0, random_state=1, resample_prob=0.8)
+RLT_cla(importance='permute', mtry=5, n_estimators=200, n_jobs=1,
+        random_state=1, resample_prob=0.8)
 ```
 
 Fitted attributes worth knowing:
@@ -122,6 +122,9 @@ fit.oob_class_        # (n,) OOB predicted classes (integer codes)
 fit.oob_prob_         # (n, n_classes) OOB class probabilities
 fit.feature_importances_  # (p,) variable importance
 ```
+
+With the data above: `fit.classes_` is `array([0, 1])`, `fit.n_features_in_`
+is `10`, and `fit.oob_error_` is `0.2125`.
 
 String labels work too — `RLT_cla` stores `classes_` and `predict` returns
 the original label type:

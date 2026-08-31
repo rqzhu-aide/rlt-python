@@ -49,8 +49,8 @@ print(fit_lc)
 ```
 
 ```
-RLT_reg(linear_comb=3, linear_comb_method='sir', mtry=3, n_jobs=1,
-        n_estimators=200, nsplit=3, random_state=3)
+RLT_reg(linear_comb=3, linear_comb_method='sir', mtry=3, n_estimators=200,
+        n_jobs=1, nsplit=3, random_state=3)
 ```
 
 ## Prediction
@@ -63,7 +63,7 @@ print(f"Linear combination size: {fit_lc.linear_comb}")
 ```
 
 ```
-Test MSE: 0.3014
+Test MSE: 0.2817
 Linear combination size: 3
 ```
 

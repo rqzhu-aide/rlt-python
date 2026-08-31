@@ -122,9 +122,9 @@ print(f"coxgrad:     {fit_cg.oob_error_:.5f}")
 ```
 
 ```
-logrank:     0.35298
-suplogrank:  0.36161
-coxgrad:     0.40758
+logrank:     0.34945
+suplogrank:  0.35366
+coxgrad:     0.40004
 ```
 
 In practice, `logrank` is a safe default. `suplogrank` can be advantageous
@@ -189,7 +189,7 @@ np.round(fit_imp.feature_importances_, 3)
 ```
 
 ```
-array([ 0.05 ,  0.04 , -0.01 , -0.01 , -0.01 ])
+array([ 0.05 ,  0.036, -0.004, -0.003,  0.004])
 ```
 
 The first two variables carry the signal and clearly stand out.
@@ -294,7 +294,7 @@ print(f"{n_nodes} nodes, {n_splits} splits")
 ```
 
 ```
-109 nodes, 54 splits
+121 nodes, 60 splits
 ```
 
 A node `i` is internal when `SplitVar[i] >= 0`: the split sends points with

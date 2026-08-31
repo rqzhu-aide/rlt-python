@@ -92,10 +92,10 @@ print(f"Same-seed predictions identical: {np.array_equal(pred_A, pred_B)}")
 ```
 
 ```
-A train MSE: 2.433143
-A test MSE:  4.457332
-B train MSE: 2.433143
-B test MSE:  4.457332
+A train MSE: 2.350063
+A test MSE:  4.314131
+B train MSE: 2.350063
+B test MSE:  4.314131
 Same-seed predictions identical: True
 ```
 
@@ -113,8 +113,8 @@ print(f"Diff-seed predictions equal to Run A: {np.array_equal(pred_C, pred_A)}")
 ```
 
 ```
-C train MSE: 2.655459
-C test MSE:  4.645068
+C train MSE: 2.728135
+C test MSE:  2.256017
 Diff-seed predictions equal to Run A: False
 ```
 

@@ -111,7 +111,7 @@ See [Get Started](tutorials/get-started.md) for platform notes.
     X = rng.normal(size=(100, 10))
     y = X[:, 0] + X[:, 1] + rng.normal(size=100)
 
-    model = RLT_reg(n_estimators=500, random_state=42)
+    model = RLT_reg(n_estimators=500, importance="permute", random_state=42)
     model.fit(X, y)                # sklearn API
     pred = model.predict(X)
     model.oob_error_               # out-of-bag MSE
@@ -190,6 +190,7 @@ See [Get Started](tutorials/get-started.md) for platform notes.
     y = X[:, 0] + rng.normal(size=100)
 
     model = RLT_reg(n_estimators=2000, var_mode="matched", random_state=1)
+    model.fit(X, y)
     pred, var = model.predict_var(X)
 
     t_event = rng.exponential(1 / np.exp(X[:, 0]))

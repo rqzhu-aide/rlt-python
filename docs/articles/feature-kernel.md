@@ -168,7 +168,7 @@ print(f"Training MSE: {np.mean((pred - y) ** 2):.4f}")
 ```
 
 ```
-Training MSE: 1.1767
+Training MSE: 0.9685
 ```
 
 ```python

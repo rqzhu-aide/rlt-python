@@ -98,7 +98,7 @@ print(f"{n_nodes} nodes, {n_splits} internal splits")
 ```
 
 ```
-41 nodes, 20 internal splits
+45 nodes, 22 internal splits
 ```
 
 A compact text preview of the tree, in the spirit of R's `get.one.tree()`:
@@ -128,13 +128,22 @@ print_tree_preview(tree)
 ```
 
 ```
-node   0 | X[5] <=   1.500 | n =   80 | mean =    2.832
-node   1 | X[5] <=   0.500 | n =   58 | mean =    1.932
-node   2 | X[3] <=  -0.248 | n =   42 | mean =    3.813
-node   3 | X[1] <=   1.599 | n =   33 | mean =    2.522
-node   4 | X[2] <=   0.629 | n =   25 | mean =    4.741
-node   5 | X[2] <=  -0.308 | n =   31 | mean =    1.568
-...
+node   0 | X[7] <=   0.500 | n =   64 | mean =    0.000
+node   1 | X[3] <=   1.885 | n =   19 | mean =    0.000
+node   2 | X[3] <=   0.519 | n =   45 | mean =    0.000
+node   3 | X[1] <=  -0.383 | n =   18 | mean =    0.000
+node   4 | terminal          | n =    1 | mean =    8.422
+node   5 | terminal          | n =    4 | mean =    2.055
+node   6 | X[5] <=   0.500 | n =   14 | mean =    0.000
+node   7 | terminal          | n =    1 | mean =    1.812
+node   8 | X[2] <=  -0.267 | n =   13 | mean =    0.000
+node   9 | X[5] <=   1.500 | n =    7 | mean =    0.000
+node  10 | X[2] <=  -0.083 | n =    6 | mean =    0.000
+node  11 | terminal          | n =    1 | mean =    2.658
+node  12 | X[0] <=  -1.095 | n =    6 | mean =    0.000
+node  13 | terminal          | n =    2 | mean =    4.480
+
+... output truncated ...
 ```
 
 For linear-combination forests, the loadings of every internal split live
@@ -155,5 +164,6 @@ np.round(loadings[0], 3)  # coefficients of the first split
 ```
 
 ```
-array([0.702, 0.658, 0.272])
+(45, 3)
+array([0.735, 0.445, 0.512])
 ```
