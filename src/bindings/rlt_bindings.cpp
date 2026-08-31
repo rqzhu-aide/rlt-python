@@ -168,6 +168,14 @@ static inline py::array_t<double> cube2np(const arma::cube& c) {
 
 // ---- python list <-> arma field conversions ----
 
+static inline py::array_t<int64_t> umat2np(const arma::umat& m) {
+  py::array_t<int64_t> out({(py::ssize_t)m.n_rows, (py::ssize_t)m.n_cols});
+  auto w = out.mutable_unchecked<2>();
+  for (size_t i = 0; i < m.n_rows; ++i)
+    for (size_t j = 0; j < m.n_cols; ++j) w(i, j) = (int64_t)m(i, j);
+  return out;
+}
+
 static inline arma::field<arma::ivec> list2field_ivec(const py::list& lst) {
   arma::field<arma::ivec> f((uword)lst.size());
   for (uword t = 0; t < f.n_elem; ++t) {
@@ -1369,8 +1377,338 @@ static py::dict SurvUniForestPred(const py::list& splitvar,
 }
 
 // ============================================================
+// Forest similarity kernels (ported from kernels/RFKernels.cpp)
+// ============================================================
+
+static py::array_t<int64_t> Kernel_Self(const py::list& splitvar,
+                                        const py::list& splitvalue,
+                                        const py::list& leftnode,
+                                        const py::list& rightnode,
+                                        const py::list& nodeweight,
+                                        const dmat_t& x, const imat_t& ncat,
+                                        size_t verbose) {
+  arma::field<arma::ivec> SplitVar = list2field_ivec(splitvar);
+  arma::field<arma::vec> SplitValue = list2field_vec(splitvalue);
+  arma::field<arma::uvec> LeftNode = list2field_uvec(leftnode);
+  arma::field<arma::uvec> RightNode = list2field_uvec(rightnode);
+  arma::field<arma::vec> NodeWeight = list2field_vec(nodeweight);
+  arma::mat X = np2mat(x);
+  arma::uvec Ncat = np2uvec(ncat);
+
+  size_t N = X.n_rows;
+  size_t ntrees = SplitVar.n_elem;
+  arma::umat K(N, N, fill::zeros);
+  uvec real_id = linspace<uvec>(0, N - 1, N);
+
+  {
+    py::gil_scoped_release release;
+    for (size_t nt = 0; nt < ntrees; nt++) {
+      Tree_Class OneTree(SplitVar(nt), SplitValue(nt), LeftNode(nt),
+                         RightNode(nt), NodeWeight(nt));
+      uvec proxy_id = linspace<uvec>(0, N - 1, N);
+      uvec TermNode(N, fill::zeros);
+      Find_Terminal_Node(0, OneTree, X, Ncat, proxy_id, real_id, TermNode);
+      uvec UniqueNode = unique(TermNode);
+      for (auto j : UniqueNode) {
+        uvec ID = real_id(find(TermNode == j));
+        K.submat(ID, ID) += 1;
+      }
+    }
+  }
+  (void)verbose;
+  return umat2np(K);
+}
+
+static py::array_t<int64_t> Kernel_Self_Comb(const py::list& splitvar,
+                                             const py::list& splitload,
+                                             const py::list& splitvalue,
+                                             const py::list& leftnode,
+                                             const py::list& rightnode,
+                                             const py::list& nodeweight,
+                                             const dmat_t& x,
+                                             const imat_t& ncat,
+                                             size_t verbose) {
+  arma::field<arma::imat> SplitVar = list2field_imat(splitvar);
+  arma::field<arma::mat> SplitLoad = list2field_mat(splitload);
+  arma::field<arma::vec> SplitValue = list2field_vec(splitvalue);
+  arma::field<arma::uvec> LeftNode = list2field_uvec(leftnode);
+  arma::field<arma::uvec> RightNode = list2field_uvec(rightnode);
+  arma::field<arma::vec> NodeWeight = list2field_vec(nodeweight);
+  arma::mat X = np2mat(x);
+  arma::uvec Ncat = np2uvec(ncat);
+
+  size_t N = X.n_rows;
+  size_t ntrees = SplitVar.n_elem;
+  arma::umat K(N, N, fill::zeros);
+  uvec real_id = linspace<uvec>(0, N - 1, N);
+
+  {
+    py::gil_scoped_release release;
+    for (size_t nt = 0; nt < ntrees; nt++) {
+      Comb_Tree_Class OneTree(SplitVar(nt), SplitLoad(nt), SplitValue(nt),
+                              LeftNode(nt), RightNode(nt), NodeWeight(nt));
+      uvec proxy_id = linspace<uvec>(0, N - 1, N);
+      uvec TermNode(N, fill::zeros);
+      Find_Terminal_Node_Comb(0, OneTree, X, Ncat, proxy_id, real_id,
+                              TermNode);
+      uvec UniqueNode = unique(TermNode);
+      for (auto j : UniqueNode) {
+        uvec ID = real_id(find(TermNode == j));
+        K.submat(ID, ID) += 1;
+      }
+    }
+  }
+  (void)verbose;
+  return umat2np(K);
+}
+
+static py::array_t<int64_t> Kernel_Cross(const py::list& splitvar,
+                                         const py::list& splitvalue,
+                                         const py::list& leftnode,
+                                         const py::list& rightnode,
+                                         const py::list& nodeweight,
+                                         const dmat_t& x1, const dmat_t& x2,
+                                         const imat_t& ncat, size_t verbose) {
+  arma::field<arma::ivec> SplitVar = list2field_ivec(splitvar);
+  arma::field<arma::vec> SplitValue = list2field_vec(splitvalue);
+  arma::field<arma::uvec> LeftNode = list2field_uvec(leftnode);
+  arma::field<arma::uvec> RightNode = list2field_uvec(rightnode);
+  arma::field<arma::vec> NodeWeight = list2field_vec(nodeweight);
+  arma::mat X1 = np2mat(x1);
+  arma::mat X2 = np2mat(x2);
+  arma::uvec Ncat = np2uvec(ncat);
+
+  size_t N1 = X1.n_rows;
+  size_t N2 = X2.n_rows;
+  size_t ntrees = SplitVar.n_elem;
+  arma::umat K(N1, N2, fill::zeros);
+
+  uvec real_id1 = linspace<uvec>(0, N1 - 1, N1);
+  uvec real_id2 = linspace<uvec>(0, N2 - 1, N2);
+
+  {
+    py::gil_scoped_release release;
+    for (size_t nt = 0; nt < ntrees; nt++) {
+      Tree_Class OneTree(SplitVar(nt), SplitValue(nt), LeftNode(nt),
+                         RightNode(nt), NodeWeight(nt));
+      uvec proxy_id1 = linspace<uvec>(0, N1 - 1, N1);
+      uvec proxy_id2 = linspace<uvec>(0, N2 - 1, N2);
+      uvec TermNode1(N1, fill::zeros);
+      uvec TermNode2(N2, fill::zeros);
+      Find_Terminal_Node(0, OneTree, X1, Ncat, proxy_id1, real_id1, TermNode1);
+      Find_Terminal_Node(0, OneTree, X2, Ncat, proxy_id2, real_id2, TermNode2);
+      uvec UniqueNode = intersect(unique(TermNode1), unique(TermNode2));
+      for (auto j : UniqueNode) {
+        uvec ID1 = real_id1(find(TermNode1 == j));
+        uvec ID2 = real_id2(find(TermNode2 == j));
+        K.submat(ID1, ID2) += 1;
+      }
+    }
+  }
+  (void)verbose;
+  return umat2np(K);
+}
+
+static py::array_t<int64_t> Kernel_Cross_Comb(
+    const py::list& splitvar, const py::list& splitload,
+    const py::list& splitvalue, const py::list& leftnode,
+    const py::list& rightnode, const py::list& nodeweight, const dmat_t& x1,
+    const dmat_t& x2, const imat_t& ncat, size_t verbose) {
+  arma::field<arma::imat> SplitVar = list2field_imat(splitvar);
+  arma::field<arma::mat> SplitLoad = list2field_mat(splitload);
+  arma::field<arma::vec> SplitValue = list2field_vec(splitvalue);
+  arma::field<arma::uvec> LeftNode = list2field_uvec(leftnode);
+  arma::field<arma::uvec> RightNode = list2field_uvec(rightnode);
+  arma::field<arma::vec> NodeWeight = list2field_vec(nodeweight);
+  arma::mat X1 = np2mat(x1);
+  arma::mat X2 = np2mat(x2);
+  arma::uvec Ncat = np2uvec(ncat);
+
+  size_t N1 = X1.n_rows;
+  size_t N2 = X2.n_rows;
+  size_t ntrees = SplitVar.n_elem;
+  arma::umat K(N1, N2, fill::zeros);
+
+  uvec real_id1 = linspace<uvec>(0, N1 - 1, N1);
+  uvec real_id2 = linspace<uvec>(0, N2 - 1, N2);
+
+  {
+    py::gil_scoped_release release;
+    for (size_t nt = 0; nt < ntrees; nt++) {
+      Comb_Tree_Class OneTree(SplitVar(nt), SplitLoad(nt), SplitValue(nt),
+                              LeftNode(nt), RightNode(nt), NodeWeight(nt));
+      uvec proxy_id1 = linspace<uvec>(0, N1 - 1, N1);
+      uvec proxy_id2 = linspace<uvec>(0, N2 - 1, N2);
+      uvec TermNode1(N1, fill::zeros);
+      uvec TermNode2(N2, fill::zeros);
+      Find_Terminal_Node_Comb(0, OneTree, X1, Ncat, proxy_id1, real_id1,
+                              TermNode1);
+      Find_Terminal_Node_Comb(0, OneTree, X2, Ncat, proxy_id2, real_id2,
+                              TermNode2);
+      uvec UniqueNode = intersect(unique(TermNode1), unique(TermNode2));
+      for (auto j : UniqueNode) {
+        uvec ID1 = real_id1(find(TermNode1 == j));
+        uvec ID2 = real_id2(find(TermNode2 == j));
+        K.submat(ID1, ID2) += 1;
+      }
+    }
+  }
+  (void)verbose;
+  return umat2np(K);
+}
+
+static py::array_t<int64_t> Kernel_Train(const py::list& splitvar,
+                                         const py::list& splitvalue,
+                                         const py::list& leftnode,
+                                         const py::list& rightnode,
+                                         const py::list& nodeweight,
+                                         const dmat_t& x1, const dmat_t& x2,
+                                         const imat_t& ncat,
+                                         const imat_t& obstrack,
+                                         size_t verbose) {
+  arma::field<arma::ivec> SplitVar = list2field_ivec(splitvar);
+  arma::field<arma::vec> SplitValue = list2field_vec(splitvalue);
+  arma::field<arma::uvec> LeftNode = list2field_uvec(leftnode);
+  arma::field<arma::uvec> RightNode = list2field_uvec(rightnode);
+  arma::field<arma::vec> NodeWeight = list2field_vec(nodeweight);
+  arma::mat X1 = np2mat(x1);
+  arma::mat X2 = np2mat(x2);
+  arma::uvec Ncat = np2uvec(ncat);
+  arma::imat ObsTrack = np2imat(obstrack);
+
+  size_t N1 = X1.n_rows;
+  size_t N2 = X2.n_rows;
+  size_t ntrees = SplitVar.n_elem;
+  arma::umat K(N1, N2, fill::zeros);
+
+  uvec real_id1 = linspace<uvec>(0, N1 - 1, N1);
+  uvec real_id2 = linspace<uvec>(0, N2 - 1, N2);
+
+  {
+    py::gil_scoped_release release;
+    for (size_t nt = 0; nt < ntrees; nt++) {
+      Tree_Class OneTree(SplitVar(nt), SplitValue(nt), LeftNode(nt),
+                         RightNode(nt), NodeWeight(nt));
+      uvec proxy_id1 = linspace<uvec>(0, N1 - 1, N1);
+      uvec proxy_id2 = linspace<uvec>(0, N2 - 1, N2);
+      uvec TermNode1(N1, fill::zeros);
+      uvec TermNode2(N2, fill::zeros);
+      Find_Terminal_Node(0, OneTree, X1, Ncat, proxy_id1, real_id1, TermNode1);
+      Find_Terminal_Node(0, OneTree, X2, Ncat, proxy_id2, real_id2, TermNode2);
+      uvec UniqueNode = intersect(unique(TermNode1), unique(TermNode2));
+      ivec intreent = ObsTrack.col(nt);
+      for (auto j : UniqueNode) {
+        uvec ID1 = real_id1(find(TermNode1 == j));
+        uvec ID2 = real_id2(find(TermNode2 == j && intreent > 0));
+        for (auto k : ID1)
+          for (auto l : ID2)
+            K(k, l) += intreent(l);
+      }
+    }
+  }
+  (void)verbose;
+  return umat2np(K);
+}
+
+static py::array_t<int64_t> Kernel_Train_Comb(
+    const py::list& splitvar, const py::list& splitload,
+    const py::list& splitvalue, const py::list& leftnode,
+    const py::list& rightnode, const py::list& nodeweight, const dmat_t& x1,
+    const dmat_t& x2, const imat_t& ncat, const imat_t& obstrack,
+    size_t verbose) {
+  arma::field<arma::imat> SplitVar = list2field_imat(splitvar);
+  arma::field<arma::mat> SplitLoad = list2field_mat(splitload);
+  arma::field<arma::vec> SplitValue = list2field_vec(splitvalue);
+  arma::field<arma::uvec> LeftNode = list2field_uvec(leftnode);
+  arma::field<arma::uvec> RightNode = list2field_uvec(rightnode);
+  arma::field<arma::vec> NodeWeight = list2field_vec(nodeweight);
+  arma::mat X1 = np2mat(x1);
+  arma::mat X2 = np2mat(x2);
+  arma::uvec Ncat = np2uvec(ncat);
+  arma::imat ObsTrack = np2imat(obstrack);
+
+  size_t N1 = X1.n_rows;
+  size_t N2 = X2.n_rows;
+  size_t ntrees = SplitVar.n_elem;
+  arma::umat K(N1, N2, fill::zeros);
+
+  uvec real_id1 = linspace<uvec>(0, N1 - 1, N1);
+  uvec real_id2 = linspace<uvec>(0, N2 - 1, N2);
+
+  {
+    py::gil_scoped_release release;
+    for (size_t nt = 0; nt < ntrees; nt++) {
+      Comb_Tree_Class OneTree(SplitVar(nt), SplitLoad(nt), SplitValue(nt),
+                              LeftNode(nt), RightNode(nt), NodeWeight(nt));
+      uvec proxy_id1 = linspace<uvec>(0, N1 - 1, N1);
+      uvec proxy_id2 = linspace<uvec>(0, N2 - 1, N2);
+      uvec TermNode1(N1, fill::zeros);
+      uvec TermNode2(N2, fill::zeros);
+      Find_Terminal_Node_Comb(0, OneTree, X1, Ncat, proxy_id1, real_id1,
+                              TermNode1);
+      Find_Terminal_Node_Comb(0, OneTree, X2, Ncat, proxy_id2, real_id2,
+                              TermNode2);
+      uvec UniqueNode = intersect(unique(TermNode1), unique(TermNode2));
+      ivec intreent = ObsTrack.col(nt);
+      for (auto j : UniqueNode) {
+        uvec ID1 = real_id1(find(TermNode1 == j));
+        uvec ID2 = real_id2(find(TermNode2 == j && intreent > 0));
+        for (auto k : ID1)
+          for (auto l : ID2)
+            K(k, l) += intreent(l);
+      }
+    }
+  }
+  (void)verbose;
+  return umat2np(K);
+}
+
+// ============================================================
 // Utilities
 // ============================================================
+
+// Monte-Carlo simultaneous band critical values (from SurvUniForest.cpp):
+// simulate nsim draws from N(0, S), standardize by mar_sd, take the
+// (1 - alpha) quantile of the max |Z|; returns mar_sd * crit.
+// Uses a deterministic xoshiro stream seeded by `seed` so results are
+// reproducible (the R version used arma's global RNG).
+static py::array_t<double> mc_band_np(const dmat_t& mar_sd,
+                                      const dmat_t& S, const dmat_t& alpha,
+                                      size_t nsim, size_t seed) {
+  arma::vec sd = np2vec(mar_sd);
+  arma::mat Sigma = np2mat(S);
+  arma::vec a = np2vec(alpha);
+
+  arma::mat L = chol(Sigma, "lower");
+  size_t d = sd.n_elem;
+
+  rlt::xoshiro256plus rng(seed);
+
+  arma::mat X(d, nsim, fill::zeros);
+  for (size_t s = 0; s < nsim; s++) {
+    for (size_t i = 0; i < d; i++) {
+      // Box-Muller from the deterministic xoshiro stream
+      double u1 = rng.uniform01();
+      double u2 = rng.uniform01();
+      double z = std::sqrt(-2.0 * std::log(u1)) * std::cos(2.0 * M_PI * u2);
+      for (size_t j = i; j < d; j++) X(j, s) += L(j, i) * z;
+    }
+  }
+  X.each_col() /= sd;
+
+  arma::vec cutoffs = max(abs(X), 0).t();
+
+  // q: one critical value per alpha level (column vector)
+  arma::vec q = quantile(cutoffs, conv_to<vec>::from(1.0 - a));
+
+  // band (d x nalpha): mar_sd (d) outer crit (nalpha)
+  arma::mat band = sd * q.t();
+  py::array_t<double> out({(py::ssize_t)q.n_elem, (py::ssize_t)d});
+  auto w = out.mutable_unchecked<2>();
+  for (size_t ia = 0; ia < q.n_elem; ia++)
+    for (size_t j = 0; j < d; j++) w(ia, j) = band(j, ia);
+  return out;
+}
 
 static double cindex_np(const dmat_t& y, const imat_t& censor,
                         const dmat_t& pred) {
@@ -1402,8 +1740,24 @@ static py::array_t<int64_t> gen_ms_obs_track_mat(size_t ntrain, size_t k,
 // Module
 // ============================================================
 
+// forward decl (defined in rlt_tp_smooth.cpp)
+arma::mat rlt_tp_smooth(const arma::mat& Sigma, const arma::vec& tvec,
+                        size_t k, double lambda_user);
+
+static py::array_t<double> tp_smooth_np(const dmat_t& sigma,
+                                        const dmat_t& tvec, size_t k,
+                                        double lambda_user) {
+  arma::mat Sigma = np2mat(sigma);
+  arma::vec tv = np2vec(tvec);
+  arma::mat out = rlt_tp_smooth(Sigma, tv, k, lambda_user);
+  return mat2np(out);
+}
+
 PYBIND11_MODULE(_core, m) {
   m.doc() = "RLT C++ core: regression / classification / survival forests";
+
+  m.def("rlt_tp_smooth", &tp_smooth_np, py::arg("sigma"), py::arg("tvec"),
+        py::arg("k"), py::arg("lambda_user"));
 
   py::class_<rlt::CoreParams>(m, "CoreParams")
       .def(py::init<>())
@@ -1504,6 +1858,39 @@ PYBIND11_MODULE(_core, m) {
         py::arg("x"), py::arg("ncat"), py::arg("nfail"),
         py::arg("mapping_indices"), py::arg("obstrack"), py::arg("var_mode"),
         py::arg("keep_all"), py::arg("ncores"), py::arg("verbose"));
+
+  m.def("Kernel_Self", &Kernel_Self, py::arg("splitvar"), py::arg("splitvalue"),
+        py::arg("leftnode"), py::arg("rightnode"), py::arg("nodeweight"),
+        py::arg("x"), py::arg("ncat"), py::arg("verbose"));
+
+  m.def("Kernel_Self_Comb", &Kernel_Self_Comb, py::arg("splitvar"),
+        py::arg("splitload"), py::arg("splitvalue"), py::arg("leftnode"),
+        py::arg("rightnode"), py::arg("nodeweight"), py::arg("x"),
+        py::arg("ncat"), py::arg("verbose"));
+
+  m.def("Kernel_Cross", &Kernel_Cross, py::arg("splitvar"),
+        py::arg("splitvalue"), py::arg("leftnode"), py::arg("rightnode"),
+        py::arg("nodeweight"), py::arg("x1"), py::arg("x2"), py::arg("ncat"),
+        py::arg("verbose"));
+
+  m.def("Kernel_Cross_Comb", &Kernel_Cross_Comb, py::arg("splitvar"),
+        py::arg("splitload"), py::arg("splitvalue"), py::arg("leftnode"),
+        py::arg("rightnode"), py::arg("nodeweight"), py::arg("x1"),
+        py::arg("x2"), py::arg("ncat"), py::arg("verbose"));
+
+  m.def("Kernel_Train", &Kernel_Train, py::arg("splitvar"),
+        py::arg("splitvalue"), py::arg("leftnode"), py::arg("rightnode"),
+        py::arg("nodeweight"), py::arg("x1"), py::arg("x2"), py::arg("ncat"),
+        py::arg("obstrack"), py::arg("verbose"));
+
+  m.def("Kernel_Train_Comb", &Kernel_Train_Comb, py::arg("splitvar"),
+        py::arg("splitload"), py::arg("splitvalue"), py::arg("leftnode"),
+        py::arg("rightnode"), py::arg("nodeweight"), py::arg("x1"),
+        py::arg("x2"), py::arg("ncat"), py::arg("obstrack"),
+        py::arg("verbose"));
+
+  m.def("mc_band", &mc_band_np, py::arg("mar_sd"), py::arg("S"),
+        py::arg("alpha"), py::arg("nsim"), py::arg("seed"));
 
   m.def("cindex", &cindex_np, py::arg("y"), py::arg("censor"),
         py::arg("pred"));

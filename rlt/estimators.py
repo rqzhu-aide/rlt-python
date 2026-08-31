@@ -12,6 +12,7 @@ from sklearn.utils import check_random_state
 from sklearn.utils.validation import check_is_fitted
 
 from . import _params
+from .bands import get_surv_band
 from ._core import (
     ClaUniCombForestFit,
     ClaUniCombForestPred,
@@ -167,6 +168,45 @@ class _BaseRLT(BaseEstimator):
         keys = ("SplitVar", "SplitValue", "LeftNode", "RightNode", "NodeWeight")
         keys = keys + self._tree_extra_keys
         return {k: np.asarray(f[k][tree_id]) for k in keys if k in f}
+
+    def forest_kernel(self, X1, X2=None, vs_train=False):
+        """Forest similarity kernel (co-occurrence in terminal nodes).
+
+        - ``X2=None``: self-kernel of X1, shape (n1, n1).
+        - ``X2`` given, ``vs_train=False``: cross-kernel (n1, n2).
+        - ``vs_train=True``: training-process kernel — X2 must be the
+          training data and the forest must have been fitted with
+          ``resample_track=True``; entries weight by inbag counts.
+
+        Returns integer counts; divide by n_estimators for frequencies.
+        """
+        check_is_fitted(self, "forest_")
+        from . import _core
+        X1 = self._check_X(X1)
+        f = self.forest_
+        comb = self._is_comb()
+
+        def prefix():
+            args = [f["SplitVar"], f["SplitValue"], f["LeftNode"],
+                    f["RightNode"], f["NodeWeight"]]
+            if comb:
+                args.insert(1, f["SplitLoad"])
+            return args
+
+        if X2 is None:
+            fn = _core.Kernel_Self_Comb if comb else _core.Kernel_Self
+            return fn(*prefix(), X1, self.ncat_, 0)
+
+        X2 = self._check_X(X2)
+        if not vs_train:
+            fn = _core.Kernel_Cross_Comb if comb else _core.Kernel_Cross
+            return fn(*prefix(), X1, X2, self.ncat_, 0)
+
+        if not hasattr(self, "obstrack_"):
+            raise ValueError(
+                "vs_train=True requires resample_track=True at fit time")
+        fn = _core.Kernel_Train_Comb if comb else _core.Kernel_Train
+        return fn(*prefix(), X1, X2, self.ncat_, self.obstrack_, 0)
 
     @property
     def feature_importances_(self):
