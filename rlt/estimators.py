@@ -75,8 +75,17 @@ class _BaseRLT(BaseEstimator):
         return X
 
     def _resolve_seed(self):
-        rng = check_random_state(self.random_state)
-        return int(rng.randint(0, 2**31 - 1))
+        # Identity mapping: random_state=42 -> C++ master seed 42, exactly
+        # like RLT R's `seed` argument. This makes forests reproducible
+        # across R and Python (same seed + same data + same params ->
+        # bit-identical trees).
+        rs = self.random_state
+        if rs is None:
+            return int(np.random.default_rng().integers(0, 2**31 - 1))
+        if isinstance(rs, (int, np.integer)):
+            return int(rs)
+        # RandomState / Generator instances: draw one seed
+        return int(check_random_state(rs).randint(0, 2**31 - 1))
 
     def _prepare_fit_inputs(self, X):
         X = self._check_X(X)

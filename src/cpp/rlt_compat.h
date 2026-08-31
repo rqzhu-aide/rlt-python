@@ -52,7 +52,12 @@ class xoshiro256plus {
   double uniform01() { return static_cast<double>(next() >> 11) * 0x1.0p-53; }
 };
 
-// ---------- Lemire debiased bounded integers, [min, max] ----------
+// ---------- boost::random-exact distributions ----------
+// Bit-exact replicas of boost::random::uniform_int_distribution and
+// uniform_real_distribution as consumed by the original RLT core with a
+// 64-bit integral engine (dqrng xoshiro256plus: min=0, max=2^64-1).
+// This is what makes same-seed fits identical to the R package.
+
 template <typename T>
 class uniform_int_distribution {
  public:
@@ -61,16 +66,26 @@ class uniform_int_distribution {
   uniform_int_distribution(T min_v, T max_v)
       : min_(min_v),
         range_(static_cast<std::uint64_t>(max_v) -
-               static_cast<std::uint64_t>(min_v) + 1ULL) {}
+               static_cast<std::uint64_t>(min_v)) {}
 
   template <typename RNG>
   T operator()(RNG& rng) const {
-    const std::uint64_t thresh = (~range_ + 1ULL) % range_;  // 2^64 mod range
-    std::uint64_t x;
-    do {
-      x = rng.next();
-    } while (x < thresh);
-    return min_ + static_cast<T>(x % range_);
+    // boost::random::detail::generate_uniform_int, integral-engine branch
+    const std::uint64_t brange = ~std::uint64_t(0);  // eng.max - eng.min
+    if (range_ == 0) return min_;  // boost draws NOTHING here
+    std::uint64_t result;
+    if (brange == range_) {
+      result = rng.next();
+    } else {
+      // brange == numeric_limits<base_unsigned>::max() branch:
+      std::uint64_t bucket_size = brange / (range_ + 1);
+      if (brange % (range_ + 1) == range_) ++bucket_size;
+      for (;;) {
+        result = rng.next() / bucket_size;
+        if (result <= range_) break;
+      }
+    }
+    return static_cast<T>(result + min_);
   }
 
  private:
@@ -84,17 +99,23 @@ class uniform_real_distribution {
  public:
   using result_type = T;
 
-  uniform_real_distribution(T min_v, T max_v)
-      : min_(min_v), span_(max_v - min_v) {}
+  uniform_real_distribution(T min_v, T max_v) : min_(min_v), max_(max_v) {}
 
   template <typename RNG>
   T operator()(RNG& rng) const {
-    return min_ + static_cast<T>(rng.uniform01()) * span_;
+    // boost::random::detail::generate_uniform_real, integral-engine branch:
+    // numerator / (double)(eng.max - eng.min + 1) * span + min, retry if
+    // the rounding hits the upper bound.
+    const T divisor = static_cast<T>(~std::uint64_t(0)) + 1.0;  // 2^64
+    for (;;) {
+      T numerator = static_cast<T>(rng.next());
+      T result = numerator / divisor * (max_ - min_) + min_;
+      if (result < max_) return result;
+    }
   }
 
  private:
-  T min_;
-  T span_;
+  T min_, max_;
 };
 
 // ---------- plain parameter struct (replaces the Rcpp List) ----------
