@@ -13,10 +13,16 @@ from sklearn.utils.validation import check_is_fitted
 
 from . import _params
 from ._core import (
+    ClaUniCombForestFit,
+    ClaUniCombForestPred,
     ClaUniForestFit,
     ClaUniForestPred,
+    RegUniCombForestFit,
+    RegUniCombForestPred,
     RegUniForestFit,
     RegUniForestPred,
+    SurvUniCombForestFit,
+    SurvUniCombForestPred,
     SurvUniForestFit,
     SurvUniForestPred,
     cindex,
@@ -102,11 +108,24 @@ class _BaseRLT(BaseEstimator):
     def _base_args(self):
         """Common forest list prefix for predict calls."""
         f = self.forest_
-        return [f["SplitVar"], f["SplitValue"], f["LeftNode"], f["RightNode"],
-                f["NodeWeight"]]
+        args = [f["SplitVar"], f["SplitValue"], f["LeftNode"],
+                f["RightNode"], f["NodeWeight"]]
+        if "SplitLoad" in f:
+            # Comb forests interleave SplitLoad after SplitVar
+            args.insert(1, f["SplitLoad"])
+        return args
+
+    def _is_comb(self):
+        return "SplitLoad" in self.forest_
 
     def _core_params(self, n, p):
         cp = _params.build_core_params(self, n, p, self._resolve_seed())
+        # embed_protect: R default is ceiling(log(n)); must be >= 1 or the
+        # core's var-protect subvec underflows (protect_valid == 0)
+        if self.embed_protect is None:
+            cp.embed_protect = max(1, int(np.ceil(np.log(max(n, 2)))))
+        else:
+            cp.embed_protect = int(self.embed_protect)
         rp = self.resample_prob
         if rp is None:
             rp = 1.0 if self.resample_replace else 0.8
@@ -117,8 +136,23 @@ class _BaseRLT(BaseEstimator):
         vm = _params._encode(self.var_mode, _params._VAR_MODE_CODES, "var_mode")
         vm = 0 if vm is None else int(vm)
         cp.var_mode = vm
-        if vm == 1 and cp.importance == 0:
-            cp.importance = 2  # matched mode needs distribute importance
+        if vm == 1:
+            # matched U-statistic preset (mirrors RLT.r): subsample without
+            # replacement, prob 0.5, even tree count, distribute importance
+            cp.replacement = False
+            cp.resample_prob = 0.5
+            if cp.ntrees % 2 != 0:
+                cp.ntrees = 2 * (cp.ntrees // 2)
+            if cp.ntrees < 2:
+                raise ValueError(
+                    "var_mode='matched' requires at least 2 trees")
+            if cp.importance == 0:
+                cp.importance = 2
+        elif vm in (2, 3):
+            # IJ / jackknife work with bootstrap samples
+            cp.replacement = True
+            if cp.importance == 0:
+                cp.importance = 2
         cp.obs_track = bool(self.resample_track) or vm > 0
         return cp
 
@@ -208,7 +242,7 @@ class RLTRegressor(_BaseRLT, RegressorMixin):
         embed_resample_replace=True,
         embed_resample_prob=0.9,
         embed_mute=0,
-        embed_protect=0,
+        embed_protect=None,
         embed_threshold=0.25,
         n_jobs=-1,
         verbose=0,
@@ -269,7 +303,10 @@ class RLTRegressor(_BaseRLT, RegressorMixin):
         obstrack = (self._matched_obstrack(cp, n) if cp.var_mode == 1
                     else self._empty_obstrack())
 
-        out = RegUniForestFit(X, y, ncat, obsw, varp, obstrack, cp)
+        if cp.linear_comb > 1:
+            out = RegUniCombForestFit(X, y, ncat, obsw, varp, obstrack, cp)
+        else:
+            out = RegUniForestFit(X, y, ncat, obsw, varp, obstrack, cp)
 
         self.forest_ = out["FittedForest"]
         self.n_features_in_ = p
@@ -289,6 +326,12 @@ class RLTRegressor(_BaseRLT, RegressorMixin):
         check_is_fitted(self, "forest_")
         X = self._check_X(X)
         vm = self._resolve_var_mode(var_est, var_mode)
+        if self._is_comb():
+            return RegUniCombForestPred(
+                *self._base_args(), self.forest_["NodeAve"], X, self.ncat_,
+                self._obstrack_or_empty(), vm, bool(keep_all),
+                self._ncores(ncores), int(self.verbose),
+            )
         return RegUniForestPred(
             *self._base_args(), self.forest_["NodeAve"], X, self.ncat_,
             self._obstrack_or_empty(), vm, bool(keep_all),
@@ -353,7 +396,7 @@ class RLTClassifier(_BaseRLT, ClassifierMixin):
         embed_resample_replace=True,
         embed_resample_prob=0.9,
         embed_mute=0,
-        embed_protect=0,
+        embed_protect=None,
         embed_threshold=0.25,
         n_jobs=-1,
         verbose=0,
@@ -419,7 +462,12 @@ class RLTClassifier(_BaseRLT, ClassifierMixin):
         obstrack = (self._matched_obstrack(cp, n) if cp.var_mode == 1
                     else self._empty_obstrack())
 
-        out = ClaUniForestFit(X, y_int, ncat, nclass, obsw, varp, obstrack, cp)
+        if cp.linear_comb > 1:
+            out = ClaUniCombForestFit(X, y_int, ncat, nclass, obsw, varp,
+                                      obstrack, cp)
+        else:
+            out = ClaUniForestFit(X, y_int, ncat, nclass, obsw, varp, obstrack,
+                                  cp)
 
         self.forest_ = out["FittedForest"]
         self.n_features_in_ = p
@@ -440,6 +488,12 @@ class RLTClassifier(_BaseRLT, ClassifierMixin):
         check_is_fitted(self, "forest_")
         X = self._check_X(X)
         vm = self._resolve_var_mode(var_est, var_mode)
+        if self._is_comb():
+            return ClaUniCombForestPred(
+                *self._base_args(), self.forest_["NodeProb"], X, self.ncat_,
+                self._obstrack_or_empty(), vm, bool(keep_all),
+                self._ncores(ncores), int(self.verbose),
+            )
         return ClaUniForestPred(
             *self._base_args(), self.forest_["NodeProb"], X, self.ncat_,
             self._obstrack_or_empty(), vm, bool(keep_all),
@@ -504,7 +558,7 @@ class RLTSurvivalForest(_BaseRLT):
         embed_resample_replace=True,
         embed_resample_prob=0.9,
         embed_mute=0,
-        embed_protect=0,
+        embed_protect=None,
         embed_threshold=0.25,
         n_jobs=-1,
         verbose=0,
@@ -590,8 +644,12 @@ class RLTSurvivalForest(_BaseRLT):
         obstrack = (self._matched_obstrack(cp, n) if cp.var_mode == 1
                     else self._empty_obstrack())
 
-        out = SurvUniForestFit(X, y_point, censor, ncat, obsw, varp, obstrack,
-                               cp)
+        if cp.linear_comb > 1:
+            out = SurvUniCombForestFit(X, y_point, censor, ncat, obsw, varp,
+                                      obstrack, cp)
+        else:
+            out = SurvUniForestFit(X, y_point, censor, ncat, obsw, varp,
+                                   obstrack, cp)
 
         self.forest_ = out["FittedForest"]
         self.n_features_in_ = p
@@ -630,6 +688,12 @@ class RLTSurvivalForest(_BaseRLT):
         X = self._check_X(X)
         vm = self._resolve_var_mode(var_est, var_mode)
         _, mapping = self._grid_and_mapping(band_grid_size)
+        if self._is_comb():
+            return SurvUniCombForestPred(
+                *self._base_args(), self.forest_["NodeHaz"], X, self.ncat_,
+                self.nfail_, mapping, self._obstrack_or_empty(), vm,
+                bool(keep_all), self._ncores(ncores), int(self.verbose),
+            )
         return SurvUniForestPred(
             *self._base_args(), self.forest_["NodeHaz"], X, self.ncat_,
             self.nfail_, mapping, self._obstrack_or_empty(), vm,

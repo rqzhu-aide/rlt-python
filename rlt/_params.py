@@ -97,7 +97,7 @@ def build_core_params(estimator, n: int, p: int, seed: int) -> CoreParams:
         "embed_replacement": bool(estimator.embed_resample_replace),
         "embed_resample_prob": float(estimator.embed_resample_prob),
         "embed_mute": float(estimator.embed_mute),
-        "embed_protect": int(estimator.embed_protect),
+        "embed_protect": int(estimator.embed_protect) if estimator.embed_protect is not None else 1,
         "embed_threshold": float(estimator.embed_threshold),
         "ncores": int(estimator.n_jobs if estimator.n_jobs and estimator.n_jobs > 0 else 0),
         "verbose": int(estimator.verbose),

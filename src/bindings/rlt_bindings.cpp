@@ -243,6 +243,585 @@ static inline py::list field2list_field_vec(
   return lst;
 }
 
+static inline arma::field<arma::imat> list2field_imat(const py::list& lst) {
+  arma::field<arma::imat> f((uword)lst.size());
+  for (uword t = 0; t < f.n_elem; ++t) f(t) = np2imat(py::cast<imat_t>(lst[t]));
+  return f;
+}
+
+static inline py::list field2list_imat(const arma::field<arma::imat>& f) {
+  py::list lst((py::ssize_t)f.n_elem);
+  for (uword t = 0; t < f.n_elem; ++t) lst[t] = imat2np(f(t));
+  return lst;
+}
+
+// ============================================================
+// Linear-combination (reinforcement) forests
+// ============================================================
+
+// ---- regression Comb ----
+
+static py::dict RegUniCombForestFit(const dmat_t& x, const dmat_t& y,
+                                    const imat_t& ncat,
+                                    const dmat_t& obsweight,
+                                    const dmat_t& varprob,
+                                    const imat_t& obstrack,
+                                    const rlt::CoreParams& p) {
+  arma::mat X = np2mat(x);
+  arma::vec Y = np2vec(y);
+  arma::uvec Ncat = np2uvec(ncat);
+  arma::vec obsw = np2vec(obsweight);
+  arma::vec varp = np2vec(varprob);
+  arma::imat ObsTrack = np2imat(obstrack);
+
+  PARAM_GLOBAL Param;
+  Param.PARAM_READ(p);
+  if (Param.verbose) Param.print();
+
+  RLT_REG_DATA REG_DATA(X, Y, Ncat, obsw, varp);
+
+  const size_t N = REG_DATA.X.n_rows;
+  const size_t P = REG_DATA.X.n_cols;
+  const size_t ntrees = Param.ntrees;
+  const int obs_track = Param.obs_track;
+  const int importance = Param.importance;
+
+  arma::field<arma::imat> SplitVar(ntrees);
+  arma::field<arma::mat> SplitLoad(ntrees);
+  arma::field<arma::vec> SplitValue(ntrees);
+  arma::field<arma::uvec> LeftNode(ntrees);
+  arma::field<arma::uvec> RightNode(ntrees);
+  arma::field<arma::vec> NodeWeight(ntrees);
+  arma::field<arma::vec> NodeAve(ntrees);
+
+  Reg_Uni_Comb_Forest_Class REG_FOREST(SplitVar, SplitLoad, SplitValue,
+                                       LeftNode, RightNode, NodeWeight,
+                                       NodeAve);
+
+  uvec obs_id = linspace<uvec>(0, N - 1, N);
+  uvec var_id = linspace<uvec>(0, P - 1, P);
+
+  vec Prediction;
+  uvec oob_count;
+  vec VarImp;
+  if (importance) VarImp.zeros(P);
+  vec VarVI;
+  if (importance && Param.var_mode) VarVI.zeros(P);
+
+  bool do_prediction = Param.replacement or (Param.resample_prob < 1);
+
+  {
+    py::gil_scoped_release release;
+    Reg_Uni_Comb_Forest_Build((const RLT_REG_DATA&)REG_DATA, REG_FOREST,
+                              (const PARAM_GLOBAL&)Param, (const uvec&)obs_id,
+                              (const uvec&)var_id, ObsTrack, do_prediction,
+                              Prediction, oob_count, VarImp, VarVI);
+  }
+
+  py::dict forest;
+  forest["SplitVar"] = field2list_imat(SplitVar);
+  forest["SplitLoad"] = field2list_mat(SplitLoad);
+  forest["SplitValue"] = field2list_vec(SplitValue);
+  forest["LeftNode"] = field2list_uvec(LeftNode);
+  forest["RightNode"] = field2list_uvec(RightNode);
+  forest["NodeWeight"] = field2list_vec(NodeWeight);
+  forest["NodeAve"] = field2list_vec(NodeAve);
+
+  py::dict out;
+  out["FittedForest"] = forest;
+  if (obs_track) out["ObsTrack"] = imat2np(ObsTrack);
+  if (importance) out["VarImp"] = vec2np(VarImp);
+  if (importance && Param.var_mode == 1) out["VarVI"] = vec2np(VarVI);
+  if (Prediction.n_elem > 0) {
+    out["Prediction"] = vec2np(Prediction);
+    uvec valid = find(oob_count > 0);
+    out["Error"] = py::float_(
+        (double)mean(square(Prediction(valid) - Y(valid))));
+  }
+  return out;
+}
+
+static py::dict RegUniCombForestPred(const py::list& splitvar,
+                                     const py::list& splitload,
+                                     const py::list& splitvalue,
+                                     const py::list& leftnode,
+                                     const py::list& rightnode,
+                                     const py::list& nodeweight,
+                                     const py::list& nodeave,
+                                     const dmat_t& x, const imat_t& ncat,
+                                     const imat_t& obstrack, int var_mode,
+                                     bool keep_all, size_t usecores,
+                                     size_t verbose) {
+  usecores = checkCores(usecores, verbose);
+
+  arma::field<arma::imat> SplitVar = list2field_imat(splitvar);
+  arma::field<arma::mat> SplitLoad = list2field_mat(splitload);
+  arma::field<arma::vec> SplitValue = list2field_vec(splitvalue);
+  arma::field<arma::uvec> LeftNode = list2field_uvec(leftnode);
+  arma::field<arma::uvec> RightNode = list2field_uvec(rightnode);
+  arma::field<arma::vec> NodeWeight = list2field_vec(nodeweight);
+  arma::field<arma::vec> NodeAve = list2field_vec(nodeave);
+  arma::mat X = np2mat(x);
+  arma::uvec Ncat = np2uvec(ncat);
+  arma::imat ObsTrack = np2imat(obstrack);
+
+  Reg_Uni_Comb_Forest_Class REG_FOREST(SplitVar, SplitLoad, SplitValue,
+                                       LeftNode, RightNode, NodeWeight,
+                                       NodeAve);
+
+  const size_t N = X.n_rows;
+  const size_t ntrees = REG_FOREST.SplitVarList.size();
+  mat PredAll(N, ntrees, fill::zeros);
+
+  {
+    py::gil_scoped_release release;
+#pragma omp parallel num_threads(usecores)
+    {
+#pragma omp for schedule(static)
+      for (size_t nt = 0; nt < ntrees; nt++) {
+        uvec proxy_id = linspace<uvec>(0, N - 1, N);
+        uvec real_id = linspace<uvec>(0, N - 1, N);
+        uvec TermNode(N, fill::zeros);
+
+        Reg_Uni_Comb_Tree_Class OneTree(REG_FOREST.SplitVarList(nt),
+                                        REG_FOREST.SplitLoadList(nt),
+                                        REG_FOREST.SplitValueList(nt),
+                                        REG_FOREST.LeftNodeList(nt),
+                                        REG_FOREST.RightNodeList(nt),
+                                        REG_FOREST.NodeWeightList(nt),
+                                        REG_FOREST.NodeAveList(nt));
+
+        Find_Terminal_Node_Comb(0, OneTree, X, Ncat, proxy_id, real_id,
+                                TermNode);
+
+        PredAll.unsafe_col(nt).rows(real_id) = OneTree.NodeAve(TermNode);
+      }
+    }
+  }
+
+  py::dict out;
+  out["Prediction"] = vec2np(mean(PredAll, 1));
+
+  if (var_mode == 1)
+    out["Variance"] = vec2np(compute_matched_variance(PredAll));
+  else if (var_mode == 2)
+    out["Variance"] = vec2np(compute_ij_variance(PredAll, ObsTrack));
+  else if (var_mode == 3)
+    out["Variance"] = vec2np(compute_jack_variance(PredAll, ObsTrack));
+
+  if (keep_all) out["PredictionAll"] = mat2np(PredAll);
+  return out;
+}
+
+// ---- classification Comb ----
+
+static py::dict ClaUniCombForestFit(const dmat_t& x, const imat_t& y,
+                                    const imat_t& ncat, size_t nclass,
+                                    const dmat_t& obsweight,
+                                    const dmat_t& varprob,
+                                    const imat_t& obstrack,
+                                    const rlt::CoreParams& p) {
+  arma::mat X = np2mat(x);
+  arma::uvec Y = np2uvec(y);
+  arma::uvec Ncat = np2uvec(ncat);
+  arma::vec obsw = np2vec(obsweight);
+  arma::vec varp = np2vec(varprob);
+  arma::imat ObsTrack = np2imat(obstrack);
+
+  PARAM_GLOBAL Param;
+  Param.PARAM_READ(p);
+  if (Param.verbose) Param.print();
+
+  RLT_CLA_DATA CLA_DATA(X, Y, Ncat, nclass, obsw, varp);
+
+  const size_t N = CLA_DATA.X.n_rows;
+  const size_t P = CLA_DATA.X.n_cols;
+  const size_t ntrees = Param.ntrees;
+  const int obs_track = Param.obs_track;
+  const int importance = Param.importance;
+
+  arma::field<arma::imat> SplitVar(ntrees);
+  arma::field<arma::mat> SplitLoad(ntrees);
+  arma::field<arma::vec> SplitValue(ntrees);
+  arma::field<arma::uvec> LeftNode(ntrees);
+  arma::field<arma::uvec> RightNode(ntrees);
+  arma::field<arma::vec> NodeWeight(ntrees);
+  arma::field<arma::mat> NodeProb(ntrees);
+
+  Cla_Uni_Comb_Forest_Class CLA_FOREST(SplitVar, SplitLoad, SplitValue,
+                                       LeftNode, RightNode, NodeWeight,
+                                       NodeProb);
+
+  uvec obs_id = linspace<uvec>(0, N - 1, N);
+  uvec var_id = linspace<uvec>(0, P - 1, P);
+
+  mat Prediction;
+  uvec oob_count;
+  vec VarImp;
+  if (importance) VarImp.zeros(P);
+  vec VarVI;
+  if (importance && Param.var_mode) VarVI.zeros(P);
+
+  bool do_prediction = Param.replacement or (Param.resample_prob < 1);
+
+  {
+    py::gil_scoped_release release;
+    Cla_Uni_Comb_Forest_Build((const RLT_CLA_DATA&)CLA_DATA, CLA_FOREST,
+                              (const PARAM_GLOBAL&)Param, (const uvec&)obs_id,
+                              (const uvec&)var_id, ObsTrack, do_prediction,
+                              Prediction, oob_count, VarImp, VarVI);
+  }
+
+  py::dict forest;
+  forest["SplitVar"] = field2list_imat(SplitVar);
+  forest["SplitLoad"] = field2list_mat(SplitLoad);
+  forest["SplitValue"] = field2list_vec(SplitValue);
+  forest["LeftNode"] = field2list_uvec(LeftNode);
+  forest["RightNode"] = field2list_uvec(RightNode);
+  forest["NodeWeight"] = field2list_vec(NodeWeight);
+  forest["NodeProb"] = field2list_mat(NodeProb);
+
+  py::dict out;
+  out["FittedForest"] = forest;
+  if (obs_track) out["ObsTrack"] = imat2np(ObsTrack);
+  if (importance) out["VarImp"] = vec2np(VarImp);
+  if (importance && Param.var_mode == 1) out["VarVI"] = vec2np(VarVI);
+  if (Prediction.n_elem > 0) {
+    uvec PredClass = index_max(Prediction, 1);
+    out["Prediction"] = uvec2np(PredClass);
+    out["Prob"] = mat2np(Prediction);
+    uvec valid = find(oob_count > 0);
+    out["Error"] = py::float_(
+        (double)sum(Y(valid) != PredClass(valid)) / (double)valid.n_elem);
+  }
+  return out;
+}
+
+static py::dict ClaUniCombForestPred(const py::list& splitvar,
+                                     const py::list& splitload,
+                                     const py::list& splitvalue,
+                                     const py::list& leftnode,
+                                     const py::list& rightnode,
+                                     const py::list& nodeweight,
+                                     const py::list& nodeprob,
+                                     const dmat_t& x, const imat_t& ncat,
+                                     const imat_t& obstrack, int var_mode,
+                                     bool keep_all, size_t usecores,
+                                     size_t verbose) {
+  usecores = checkCores(usecores, verbose);
+
+  arma::field<arma::imat> SplitVar = list2field_imat(splitvar);
+  arma::field<arma::mat> SplitLoad = list2field_mat(splitload);
+  arma::field<arma::vec> SplitValue = list2field_vec(splitvalue);
+  arma::field<arma::uvec> LeftNode = list2field_uvec(leftnode);
+  arma::field<arma::uvec> RightNode = list2field_uvec(rightnode);
+  arma::field<arma::vec> NodeWeight = list2field_vec(nodeweight);
+  arma::field<arma::mat> NodeProb = list2field_mat(nodeprob);
+  arma::mat X = np2mat(x);
+  arma::uvec Ncat = np2uvec(ncat);
+  arma::imat ObsTrack = np2imat(obstrack);
+
+  Cla_Uni_Comb_Forest_Class CLA_FOREST(SplitVar, SplitLoad, SplitValue,
+                                       LeftNode, RightNode, NodeWeight,
+                                       NodeProb);
+
+  const size_t N = X.n_rows;
+  const size_t ntrees = CLA_FOREST.SplitVarList.size();
+  const size_t nclass = CLA_FOREST.NodeProbList(0).n_cols;
+
+  cube PredAll(ntrees, nclass, N, fill::zeros);
+  mat Prob(N, nclass, fill::zeros);
+  uvec Pred(N, fill::zeros);
+
+  {
+    py::gil_scoped_release release;
+#pragma omp parallel num_threads(usecores)
+    {
+#pragma omp for schedule(static)
+      for (size_t nt = 0; nt < ntrees; nt++) {
+        uvec proxy_id = linspace<uvec>(0, N - 1, N);
+        uvec real_id = linspace<uvec>(0, N - 1, N);
+        uvec TermNode(N, fill::zeros);
+
+        Cla_Uni_Comb_Tree_Class OneTree(CLA_FOREST.SplitVarList(nt),
+                                        CLA_FOREST.SplitLoadList(nt),
+                                        CLA_FOREST.SplitValueList(nt),
+                                        CLA_FOREST.LeftNodeList(nt),
+                                        CLA_FOREST.RightNodeList(nt),
+                                        CLA_FOREST.NodeWeightList(nt),
+                                        CLA_FOREST.NodeProbList(nt));
+
+        Find_Terminal_Node_Comb(0, OneTree, X, Ncat, proxy_id, real_id,
+                                TermNode);
+
+        for (size_t i = 0; i < N; i++)
+          PredAll.slice(i).row(nt) =
+              CLA_FOREST.NodeProbList(nt).row(TermNode(i));
+      }
+
+#pragma omp barrier
+#pragma omp for schedule(static)
+      for (size_t i = 0; i < N; i++) {
+        Prob.row(i) = mean(PredAll.slice(i), 0);
+        Pred(i) = index_max(Prob.row(i));
+      }
+    }
+  }
+
+  py::dict out;
+  out["Prediction"] = uvec2np(Pred);
+  out["Prob"] = mat2np(Prob);
+  if (keep_all) {
+    py::array_t<double> all({(py::ssize_t)N, (py::ssize_t)ntrees,
+                             (py::ssize_t)nclass});
+    auto w = all.mutable_unchecked<3>();
+    for (size_t i = 0; i < N; ++i)
+      for (size_t nt = 0; nt < ntrees; ++nt)
+        for (size_t k = 0; k < nclass; ++k) w(i, nt, k) = PredAll(nt, k, i);
+    out["PredictionAll"] = all;
+  }
+  return out;
+}
+
+// ---- survival Comb ----
+
+static py::dict SurvUniCombForestFit(const dmat_t& x, const imat_t& y,
+                                     const imat_t& censor, const imat_t& ncat,
+                                     const dmat_t& obsweight,
+                                     const dmat_t& varprob,
+                                     const imat_t& obstrack,
+                                     const rlt::CoreParams& p) {
+  arma::mat X = np2mat(x);
+  arma::uvec Y = np2uvec(y);
+  arma::uvec Censor = np2uvec(censor);
+  arma::uvec Ncat = np2uvec(ncat);
+  arma::vec obsw = np2vec(obsweight);
+  arma::vec varp = np2vec(varprob);
+  arma::imat ObsTrack = np2imat(obstrack);
+
+  PARAM_GLOBAL Param;
+  Param.PARAM_READ(p);
+  if (Param.verbose) Param.print();
+
+  uvec failY = Y(find(Censor == 1));
+  if (failY.is_empty())
+    throw std::invalid_argument("no observed failures (censor all zero)");
+  size_t NFail = (size_t)max(failY);
+
+  RLT_SURV_DATA SURV_DATA(X, Y, Censor, Ncat, NFail, obsw, varp);
+
+  const size_t N = SURV_DATA.X.n_rows;
+  const size_t P = SURV_DATA.X.n_cols;
+  const size_t ntrees = Param.ntrees;
+  const int obs_track = Param.obs_track;
+  const int importance = Param.importance;
+
+  arma::field<arma::imat> SplitVar(ntrees);
+  arma::field<arma::mat> SplitLoad(ntrees);
+  arma::field<arma::vec> SplitValue(ntrees);
+  arma::field<arma::uvec> LeftNode(ntrees);
+  arma::field<arma::uvec> RightNode(ntrees);
+  arma::field<arma::vec> NodeWeight(ntrees);
+  arma::field<arma::field<arma::vec>> NodeHaz(ntrees);
+
+  Surv_Uni_Comb_Forest_Class SURV_FOREST(SplitVar, SplitLoad, SplitValue,
+                                         LeftNode, RightNode, NodeWeight,
+                                         NodeHaz);
+
+  uvec obs_id = linspace<uvec>(0, N - 1, N);
+  uvec var_id = linspace<uvec>(0, P - 1, P);
+
+  mat Prediction;
+  uvec oob_count;
+  vec VarImp;
+  if (importance) VarImp.zeros(P);
+  vec VarVI;
+  if (importance && Param.var_mode) VarVI.zeros(P);
+
+  bool do_prediction = Param.replacement or (Param.resample_prob < 1);
+
+  {
+    py::gil_scoped_release release;
+    Surv_Uni_Comb_Forest_Build((const RLT_SURV_DATA&)SURV_DATA, SURV_FOREST,
+                               (const PARAM_GLOBAL&)Param, (const uvec&)obs_id,
+                               (const uvec&)var_id, ObsTrack, do_prediction,
+                               Prediction, oob_count, VarImp, VarVI);
+  }
+
+  py::dict forest;
+  forest["SplitVar"] = field2list_imat(SplitVar);
+  forest["SplitLoad"] = field2list_mat(SplitLoad);
+  forest["SplitValue"] = field2list_vec(SplitValue);
+  forest["LeftNode"] = field2list_uvec(LeftNode);
+  forest["RightNode"] = field2list_uvec(RightNode);
+  forest["NodeWeight"] = field2list_vec(NodeWeight);
+  forest["NodeHaz"] = field2list_field_vec(NodeHaz);
+
+  py::dict out;
+  out["FittedForest"] = forest;
+  out["NFail"] = py::int_((int)NFail);
+  if (obs_track) out["ObsTrack"] = imat2np(ObsTrack);
+  if (importance) out["VarImp"] = vec2np(VarImp);
+  if (importance && Param.var_mode == 1) out["VarVI"] = vec2np(VarVI);
+  if (Prediction.n_elem > 0) {
+    out["Prediction"] = mat2np(Prediction);
+    uvec valid = find(oob_count > 0);
+    vec oobcch(Prediction.n_rows, fill::zeros);
+    for (size_t k = 0; k < valid.n_elem; k++)
+      oobcch(k) = accu(cumsum(Prediction.row(valid(k))));
+    uvec subY = Y(valid);
+    uvec subCensor = Censor(valid);
+    out["Error"] = py::float_(1.0 - cindex_impl<arma::uvec>(subY, subCensor,
+                                                            oobcch));
+  }
+  return out;
+}
+
+static py::dict SurvUniCombForestPred(const py::list& splitvar,
+                                      const py::list& splitload,
+                                      const py::list& splitvalue,
+                                      const py::list& leftnode,
+                                      const py::list& rightnode,
+                                      const py::list& nodeweight,
+                                      const py::list& nodehaz,
+                                      const dmat_t& x, const imat_t& ncat,
+                                      size_t NFail,
+                                      const imat_t& mapping_indices,
+                                      const imat_t& obstrack, int var_mode,
+                                      bool keep_all, size_t usecores,
+                                      size_t verbose) {
+  usecores = checkCores(usecores, verbose);
+
+  arma::field<arma::imat> SplitVar = list2field_imat(splitvar);
+  arma::field<arma::mat> SplitLoad = list2field_mat(splitload);
+  arma::field<arma::vec> SplitValue = list2field_vec(splitvalue);
+  arma::field<arma::uvec> LeftNode = list2field_uvec(leftnode);
+  arma::field<arma::uvec> RightNode = list2field_uvec(rightnode);
+  arma::field<arma::vec> NodeWeight = list2field_vec(nodeweight);
+  arma::field<arma::field<arma::vec>> NodeHaz =
+      list2field_field_vec(nodehaz);
+  arma::mat X = np2mat(x);
+  arma::uvec Ncat = np2uvec(ncat);
+  arma::uvec mapping = np2uvec(mapping_indices);
+  arma::imat ObsTrack = np2imat(obstrack);
+
+  Surv_Uni_Comb_Forest_Class SURV_FOREST(SplitVar, SplitLoad, SplitValue,
+                                         LeftNode, RightNode, NodeWeight,
+                                         NodeHaz);
+
+  const size_t N = X.n_rows;
+  const size_t ntrees = SURV_FOREST.SplitVarList.size();
+  bool VarEst = (var_mode > 0);
+  const size_t effective_grid_size = mapping.n_elem;
+
+  umat AllTermNode(N, ntrees, fill::zeros);
+
+  mat Hazard(N, effective_grid_size);
+  mat CHazard(N, effective_grid_size);
+  mat Surv(N, effective_grid_size);
+
+  cube Cov;
+  if (VarEst) Cov.zeros(effective_grid_size, effective_grid_size, N);
+
+  cube AllHazard;
+  if (keep_all) AllHazard.zeros(ntrees, effective_grid_size, N);
+
+  {
+    py::gil_scoped_release release;
+#pragma omp parallel num_threads(usecores)
+    {
+#pragma omp for schedule(static)
+      for (size_t nt = 0; nt < ntrees; nt++) {
+        uvec proxy_id = linspace<uvec>(0, N - 1, N);
+        uvec real_id = linspace<uvec>(0, N - 1, N);
+        uvec TermNode(N, fill::zeros);
+        Comb_Tree_Class OneTree(SURV_FOREST.SplitVarList(nt),
+                                SURV_FOREST.SplitLoadList(nt),
+                                SURV_FOREST.SplitValueList(nt),
+                                SURV_FOREST.LeftNodeList(nt),
+                                SURV_FOREST.RightNodeList(nt),
+                                SURV_FOREST.NodeWeightList(nt));
+        Find_Terminal_Node_Comb(0, OneTree, X, Ncat, proxy_id, real_id,
+                                TermNode);
+        AllTermNode.col(nt) = TermNode;
+      }
+
+#pragma omp barrier
+
+#pragma omp for schedule(static)
+      for (size_t i = 0; i < N; i++) {
+        mat pred_i_hazard_full(ntrees, NFail);
+        for (size_t nt = 0; nt < ntrees; nt++) {
+          arma::vec H_full = SURV_FOREST.NodeHazList(nt).at(AllTermNode(i, nt));
+          pred_i_hazard_full.row(nt) = H_full.subvec(1, NFail).t();
+        }
+
+        mat pred_i_survival_full = cumprod(1 - pred_i_hazard_full, 1);
+
+        mat pred_i_hazard_reduced = pred_i_hazard_full.cols(mapping);
+
+        Hazard.row(i) = mean(pred_i_hazard_reduced, 0);
+        CHazard.row(i) = cumsum(Hazard.row(i));
+        Surv.row(i) = exp(-CHazard.row(i));
+
+        if (VarEst) {
+          mat pred_i_for_var = cumsum(pred_i_hazard_reduced, 1);
+
+          if (var_mode == 1) {
+            size_t B = ntrees / 2;
+            mat Diff =
+                pred_i_for_var.rows(0, B - 1) - pred_i_for_var.rows(B, ntrees - 1);
+            mat Vh = Diff.t() * Diff / ntrees;
+            mat Vs = cov(pred_i_for_var, 1);
+            mat diffmat = Vh - Vs;
+            vec eigval;
+            mat eigvec;
+            eig_sym(eigval, eigvec, diffmat);
+            eigval.elem(find(eigval < 1e-6)).fill(1e-6);
+            Cov.slice(i) = eigvec * diagmat(eigval) * eigvec.t();
+            Cov.slice(i) = (Cov.slice(i) + Cov.slice(i).t()) / 2;
+          } else if (var_mode == 2) {
+            Cov.slice(i) = compute_surv_ij_variance(pred_i_for_var, ObsTrack);
+          } else if (var_mode == 3) {
+            Cov.slice(i) = compute_surv_jack_variance(pred_i_for_var, ObsTrack);
+          }
+        }
+
+        if (keep_all)
+          AllHazard.slice(i).cols(0, effective_grid_size - 1) =
+              pred_i_hazard_reduced;
+      }
+    }
+  }
+
+  py::dict out;
+  out["Hazard"] = mat2np(Hazard);
+  out["CHF"] = mat2np(CHazard);
+  out["Survival"] = mat2np(Surv);
+  if (VarEst) {
+    py::array_t<double> cov({(py::ssize_t)N,
+                             (py::ssize_t)effective_grid_size,
+                             (py::ssize_t)effective_grid_size});
+    auto w = cov.mutable_unchecked<3>();
+    for (size_t i = 0; i < N; ++i)
+      for (size_t a = 0; a < effective_grid_size; ++a)
+        for (size_t b = 0; b < effective_grid_size; ++b)
+          w(i, a, b) = Cov(a, b, i);
+    out["Cov"] = cov;
+  }
+  if (keep_all) {
+    py::array_t<double> all({(py::ssize_t)N, (py::ssize_t)ntrees,
+                             (py::ssize_t)effective_grid_size});
+    auto w = all.mutable_unchecked<3>();
+    for (size_t i = 0; i < N; ++i)
+      for (size_t nt = 0; nt < ntrees; ++nt)
+        for (size_t t = 0; t < effective_grid_size; ++t)
+          w(i, nt, t) = AllHazard(nt, t, i);
+    out["AllHazard"] = all;
+  }
+  return out;
+}
+
 // ============================================================
 // Regression forest
 // ============================================================
@@ -890,6 +1469,41 @@ PYBIND11_MODULE(_core, m) {
         py::arg("ncat"), py::arg("nfail"), py::arg("mapping_indices"),
         py::arg("obstrack"), py::arg("var_mode"), py::arg("keep_all"),
         py::arg("ncores"), py::arg("verbose"));
+
+  m.def("RegUniCombForestFit", &RegUniCombForestFit, py::arg("x"),
+        py::arg("y"), py::arg("ncat"), py::arg("obsweight"),
+        py::arg("varprob"), py::arg("obstrack"), py::arg("params"));
+
+  m.def("RegUniCombForestPred", &RegUniCombForestPred, py::arg("splitvar"),
+        py::arg("splitload"), py::arg("splitvalue"), py::arg("leftnode"),
+        py::arg("rightnode"), py::arg("nodeweight"), py::arg("nodeave"),
+        py::arg("x"), py::arg("ncat"), py::arg("obstrack"),
+        py::arg("var_mode"), py::arg("keep_all"), py::arg("ncores"),
+        py::arg("verbose"));
+
+  m.def("ClaUniCombForestFit", &ClaUniCombForestFit, py::arg("x"),
+        py::arg("y"), py::arg("ncat"), py::arg("nclass"),
+        py::arg("obsweight"), py::arg("varprob"), py::arg("obstrack"),
+        py::arg("params"));
+
+  m.def("ClaUniCombForestPred", &ClaUniCombForestPred, py::arg("splitvar"),
+        py::arg("splitload"), py::arg("splitvalue"), py::arg("leftnode"),
+        py::arg("rightnode"), py::arg("nodeweight"), py::arg("nodeprob"),
+        py::arg("x"), py::arg("ncat"), py::arg("obstrack"),
+        py::arg("var_mode"), py::arg("keep_all"), py::arg("ncores"),
+        py::arg("verbose"));
+
+  m.def("SurvUniCombForestFit", &SurvUniCombForestFit, py::arg("x"),
+        py::arg("y"), py::arg("censor"), py::arg("ncat"),
+        py::arg("obsweight"), py::arg("varprob"), py::arg("obstrack"),
+        py::arg("params"));
+
+  m.def("SurvUniCombForestPred", &SurvUniCombForestPred, py::arg("splitvar"),
+        py::arg("splitload"), py::arg("splitvalue"), py::arg("leftnode"),
+        py::arg("rightnode"), py::arg("nodeweight"), py::arg("nodehaz"),
+        py::arg("x"), py::arg("ncat"), py::arg("nfail"),
+        py::arg("mapping_indices"), py::arg("obstrack"), py::arg("var_mode"),
+        py::arg("keep_all"), py::arg("ncores"), py::arg("verbose"));
 
   m.def("cindex", &cindex_np, py::arg("y"), py::arg("censor"),
         py::arg("pred"));
