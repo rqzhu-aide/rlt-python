@@ -46,11 +46,18 @@ def test_multiclass_3_class_fits_and_predicts_all_classes():
 
 
 def test_classification_with_factor_columns_works():
-    # TODO: Python API lacks per-column categorical (factor/ncat) support, so
-    # the categorical columns are treated as plain continuous codes.
+    # Ported: R passes a data.frame with factor columns (ncat from levels);
+    # the Python idiom is the categorical_features parameter. The mixed
+    # generator's discrete columns are declared categorical here.
     d = generate_mixed_feature_regression(n=80, p=10)
     y = (d["y"] > np.median(d["y"])).astype(int)
-    RLT_cla(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], y)
+    X = d["X"]
+    # declare the low-cardinality columns (few unique values) as categorical
+    cat_idx = [j for j in range(X.shape[1])
+               if len(np.unique(X[:, j])) <= 10]
+    fit = RLT_cla(n_estimators=30, n_jobs=2, verbose=0,
+                  categorical_features=cat_idx).fit(X, y)
+    assert fit.ncat_[cat_idx[0]] > 1
 
 
 def test_oob_predictions_are_returned():
@@ -68,33 +75,33 @@ def test_importance_true_returns_correct_length_varimp():
     assert fit.feature_importances_.shape == (d["p"],)
 
 
-# TODO: Python API has no var.prob parameter (R: var.prob)
-@pytest.mark.xfail(reason="var.prob not available in Python API", strict=True)
+# Ported: R's var.prob maps to the fit-time var_prob kwarg (sklearn idiom).
 def test_var_prob_is_accepted_without_error():
     d = generate_classification_data(n=80, p=10)
     vp = np.full(d["p"], 1.0 / d["p"])
-    RLT_cla(n_estimators=30, var_prob=vp, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_cla(n_estimators=30, n_jobs=2, verbose=0).fit(
+        d["X"], d["y"], var_prob=vp)
+    assert np.isfinite(fit.oob_error_)
 
 
-# TODO: Python API has no var.prob parameter (R: var.prob), so the skewed
-# var.prob behavior cannot be exercised.
-@pytest.mark.xfail(reason="var.prob not available in Python API", strict=True)
 def test_var_prob_skewed_weights_favor_high_prob_variables():
+    # R: skewed var.prob accepted; importance still computed
     d = generate_classification_data(n=80, p=10)
     vp = np.array([5.0] * 3 + [0.1] * 7)
     fit = RLT_cla(
-        n_estimators=30, var_prob=vp, importance="permute", n_jobs=2, verbose=0
-    ).fit(d["X"], d["y"])
+        n_estimators=30, importance="permute", n_jobs=2, verbose=0
+    ).fit(d["X"], d["y"], var_prob=vp)
     top3 = np.argsort(fit.feature_importances_)[::-1][:3]
     assert len(top3) == 3
 
 
-# TODO: Python API has no obs.w parameter (R: obs.w)
-@pytest.mark.xfail(reason="obs.w not available in Python API", strict=True)
+# Ported: R's obs.w maps to the sklearn sample_weight fit kwarg.
 def test_obs_w_is_accepted_without_error():
     d = generate_classification_data(n=80, p=10)
     w = np.random.default_rng(1).random(d["n"])
-    RLT_cla(n_estimators=30, obs_weight=w, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_cla(n_estimators=30, n_jobs=2, verbose=0).fit(
+        d["X"], d["y"], sample_weight=w)
+    assert np.isfinite(fit.oob_error_)
 
 
 def test_same_seed_gives_identical_results():

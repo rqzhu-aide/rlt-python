@@ -2,16 +2,12 @@
 
 Param map: param.control list(var.mode=...) -> var_mode kwarg ("matched"/
 "ij"/"jack"; R's "IJ" upper-case maps to lower-case "ij"), ncores->n_jobs,
-predict(var.est=TRUE) -> .predict_var(X) (regression) which returns
-(prediction, variance).
+predict(var.est=TRUE) -> .predict_var(X) (regression) or RLT_cla.predict_var
+(classification), both returning (prediction/prob, variance) with negative
+estimates cleaned to NaN.
 
-API gaps vs R (documented, not worked around):
-- Classification predict never computes a Variance matrix (the binding
-  accepts var_mode but ignores it) -> those tests are skipped.
-- VarVI is dropped by the Python estimator layer -> R's fit$VarVI checks
-  are adapted to attribute-absence checks.
-- predict_var on a forest fitted without var_mode does NOT raise in Python
-  (R errors); it returns all-NaN variance instead.
+Former API gaps (now ported): classification predict variance (matched/IJ/
+jack via predict_var), VarVI surfacing (fit.var_vi_).
 """
 import numpy as np
 import pytest
@@ -56,16 +52,22 @@ def test_matched_regression_forces_subsample_prob_half(d_reg):
 
 
 def test_matched_regression_varvi_returned(d_reg):
-    # R: fit$VarVI, length p. API gap: Python estimator drops VarVI even
-    # though the core computes it (importance && var.mode == 1).
+    # R: fit$VarVI, length p. Surfaced by the Python estimator layer since
+    # the VarVI port (core computes it when importance && var_mode == 1).
     fit = RLT_reg(n_estimators=30, importance="permute", var_mode="matched",
                   n_jobs=2, random_state=1).fit(d_reg["X"], d_reg["y"])
-    assert not hasattr(fit, "var_vi_")  # documents the gap
+    assert np.asarray(fit.var_vi_).shape == (d_reg["p"],)
 
 
 def test_matched_regression_varvi_numeric(d_reg):
-    pytest.skip("VarVI is not surfaced by the Python estimator layer "
-                "(API gap; core computes it)")
+    # R: expect_type(fit$VarVI, "double"). Ported: float array, length p,
+    # finite (matched U-statistic variance estimates).
+    fit = RLT_reg(n_estimators=30, importance="permute", var_mode="matched",
+                  n_jobs=2, random_state=1).fit(d_reg["X"], d_reg["y"])
+    vvi = np.asarray(fit.var_vi_)
+    assert vvi.dtype.kind == "f"
+    assert vvi.shape == (d_reg["p"],)
+    assert np.all(np.isfinite(vvi))
 
 
 def test_matched_regression_predict_without_var_est_has_no_variance(d_reg):
@@ -81,17 +83,28 @@ def test_matched_regression_predict_without_var_est_has_no_variance(d_reg):
 # --- Classification matched ----------------------------------------------------
 
 def test_matched_classification_predict_returns_variance_matrix(d_cla):
-    pytest.skip("API gap: classification predict does not compute Variance "
-                "(binding ignores var_mode)")
+    # R: predict(var.est=TRUE) returns an n x nclass Variance matrix.
+    # Ported: RLT_cla.predict_var returns (prob, variance).
+    fit = RLT_cla(n_estimators=30, var_mode="matched", n_jobs=2,
+                  random_state=1).fit(d_cla["X"], d_cla["y"])
+    prob, var = fit.predict_var(d_cla["X"])
+    assert prob.shape == (d_cla["n"], fit.classes_.shape[0])
+    assert var.shape == (d_cla["n"], fit.classes_.shape[0])
 
 
 def test_matched_classification_variance_non_negative_or_nan(d_cla):
-    pytest.skip("API gap: classification predict does not compute Variance")
+    # R: Variance >= 0 or NA (clean.variance). Ported.
+    fit = RLT_cla(n_estimators=30, var_mode="matched", n_jobs=2,
+                  random_state=1).fit(d_cla["X"], d_cla["y"])
+    _, var = fit.predict_var(d_cla["X"])
+    assert np.all((var >= 0) | np.isnan(var))
 
 
 def test_matched_classification_varvi_returned(d_cla):
-    pytest.skip("API gap: VarVI is not surfaced by the Python estimator "
-                "layer")
+    # R: fit$VarVI, length p. Ported (was API gap).
+    fit = RLT_cla(n_estimators=30, importance="permute", var_mode="matched",
+                  n_jobs=2, random_state=1).fit(d_cla["X"], d_cla["y"])
+    assert np.asarray(fit.var_vi_).shape == (d_cla["p"],)
 
 
 # --- Regression IJ -------------------------------------------------------------
@@ -153,11 +166,21 @@ def test_ij_classification_fit_stores_obstrack(d_cla):
 
 
 def test_ij_classification_predict_returns_variance_matrix(d_cla):
-    pytest.skip("API gap: classification predict does not compute Variance")
+    # R: IJ variance on classification predict. Ported via predict_var.
+    fit = RLT_cla(n_estimators=30, var_mode="ij", n_jobs=2,
+                  random_state=1).fit(d_cla["X"], d_cla["y"])
+    prob, var = fit.predict_var(d_cla["X"])
+    assert var.shape == (d_cla["n"], fit.classes_.shape[0])
+    assert np.all((var >= 0) | np.isnan(var))
 
 
 def test_jack_classification_predict_returns_variance_matrix(d_cla):
-    pytest.skip("API gap: classification predict does not compute Variance")
+    # R: jackknife variance on classification predict. Ported via predict_var.
+    fit = RLT_cla(n_estimators=30, var_mode="jack", n_jobs=2,
+                  random_state=1).fit(d_cla["X"], d_cla["y"])
+    prob, var = fit.predict_var(d_cla["X"])
+    assert var.shape == (d_cla["n"], fit.classes_.shape[0])
+    assert np.all((var >= 0) | np.isnan(var))
 
 
 # --- Error handling -------------------------------------------------------------

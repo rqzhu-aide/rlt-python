@@ -27,13 +27,12 @@ def test_lc_method_works(method):
 
 @pytest.mark.parametrize("m", [1, 2, 3, 4])
 def test_integer_method_codes_work(m):
-    # R: integer codes 1-4 accepted without error. NOTE (API gap): the Python
-    # layer maps *string* names only; an int code is stringified and misses the
-    # lookup table, silently falling back to the default method (code 4/sir).
-    # The fit itself still succeeds, matching R's expect_error(..., NA).
+    # R: integer codes 1-4 accepted without error. Ported: the Python layer
+    # now accepts integer codes directly (no stringification/fallback).
     d = generate_simple_regression(n=80, p=10)
-    _fit(d["X"], d["y"], n_estimators=20, linear_comb=3,
-         linear_comb_method=m)
+    fit = _fit(d["X"], d["y"], n_estimators=20, linear_comb=3,
+               linear_comb_method=m)
+    assert fit.params_.linear_comb_method == m
 
 
 def test_lc_with_categorical_predictors():
@@ -73,11 +72,13 @@ def test_lc_sir_beats_mean_baseline():
 
 
 def test_invalid_linear_comb_method_triggers_warning():
-    # R: expect_warning(...). The Python layer does NOT warn for an
-    # unrecognized linear_comb_method -- it silently falls back to the
-    # default (code 4). Skipped per port policy; genuine API gap.
-    pytest.skip("Python layer does not warn on invalid linear_comb_method "
-                "(silently falls back to default)")
+    # R: expect_warning + reset to code 1 (naive). Ported: the Python layer
+    # warns and resets linear_comb_method to 1, mirroring RegForest.r.
+    d = generate_simple_regression(n=80, p=10)
+    with pytest.warns(UserWarning, match="not recognized"):
+        fit = _fit(d["X"], d["y"], n_estimators=20, linear_comb=3,
+                   linear_comb_method="bogus")
+    assert fit.params_.linear_comb_method == 1
 
 
 def test_var_prob_accepted_alongside_lc():

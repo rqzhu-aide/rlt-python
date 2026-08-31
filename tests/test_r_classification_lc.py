@@ -41,12 +41,12 @@ def test_lc_method_works_on_3class_data(method):
 
 @pytest.mark.parametrize("m", [1, 2, 3, 4])
 def test_integer_method_codes_work(m):
-    # R: integer codes 1-4 accepted. API gap (as in regression-lc port):
-    # Python maps string names only; int codes silently fall back to the
-    # default method. Fit still succeeds, matching R's expect_error(..., NA).
+    # R: integer codes 1-4 accepted. Ported: the Python layer accepts
+    # integer codes directly (no stringification / silent fallback).
     d = generate_classification_data(n=80, p=10)
-    _fit(d["X"], d["y"], n_estimators=20, linear_comb=3,
-         linear_comb_method=m)
+    fit = _fit(d["X"], d["y"], n_estimators=20, linear_comb=3,
+               linear_comb_method=m)
+    assert fit.params_.linear_comb_method == m
 
 
 def test_lc_with_categorical_predictors():

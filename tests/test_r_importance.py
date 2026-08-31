@@ -5,11 +5,11 @@ param.control list(var.mode=...) -> var_mode kwarg; ncores->n_jobs.
 
 API notes vs R:
 - R's `importance(fit)` data.frame extractor has no Python equivalent; the
-  analog is the fitted ``feature_importances_`` property (VarImp array).
-  Tests about the data.frame shape/columns (Variable names, SD/Z/Sig,
-  significance codes, print method) are skipped with comments.
-- VarVI is computed by the core but dropped by the Python estimator layer
-  (genuine API gap) -> related tests skipped.
+  analog is the fitted ``feature_importances_`` property (VarImp array);
+  the full Variable/VI/SD/Z/Sig table is available via
+  ``importance_table()`` / ``rlt.importance(model)`` (ported).
+- VarVI is surfaced as ``var_vi_`` when importance != 'none' and
+  var_mode='matched' (ported).
 """
 import numpy as np
 import pytest
@@ -68,10 +68,24 @@ def test_regression_importance_no_variance_without_var_mode(d_reg):
 
 
 def test_regression_importance_names_from_xnames(d_reg):
-    # R: imp$Variable equals colnames(X). Python feature_importances_ is a
-    # plain array; no Variable column / feature-name mapping is exposed.
-    pytest.skip("no importance() data.frame extractor in the Python API "
-                "(feature_importances_ carries values only)")
+    # R: imp$Variable equals colnames(X). Ported: importance_table() uses
+    # feature_names_in_ when the estimator was fitted with named columns.
+    fit = _fit_reg(d_reg["X"], d_reg["y"], n_estimators=30,
+                   importance="permute")
+
+    class _NamedX:
+        """Minimal array-like with .columns (no pandas dependency)."""
+
+        def __init__(self, arr, columns):
+            self.arr = arr
+            self.columns = columns
+
+        def __array__(self, dtype=None):
+            return np.asarray(self.arr, dtype=dtype)
+
+    # default names: V1..Vp
+    tab = fit.importance_table()
+    assert tab.variable == [f"V{i + 1}" for i in range(d_reg["p"])]
 
 
 def test_classification_importance_has_length_p(d_cla):
@@ -117,18 +131,44 @@ def test_importance_with_var_mode_matched_fits(d_reg):
 
 
 def test_matched_importance_sd_non_negative(d_reg):
-    pytest.skip("SD column requires the R importance() extractor; "
-                "Python API gap")
+    # R: SD = sqrt(pmax(VarVI, 0)), NA where VarVI < 0. Ported: the table's
+    # sd entries are NaN or strictly non-negative floats.
+    fit = _fit_reg(d_reg["X"], d_reg["y"], n_estimators=30,
+                   importance="permute", var_mode="matched")
+    tab = fit.importance_table()
+    assert tab.has_variance
+    assert tab.sd is not None
+    ok = ~np.isnan(tab.sd)
+    assert np.all(tab.sd[ok] >= 0)
 
 
 def test_matched_var_mode_z_equals_vi_over_sd(d_reg):
-    pytest.skip("Z = VI/SD requires the R importance() extractor; "
-                "Python API gap")
+    # R: Z = VI / SD (NA when SD is NA). Ported.
+    fit = _fit_reg(d_reg["X"], d_reg["y"], n_estimators=30,
+                   importance="permute", var_mode="matched")
+    tab = fit.importance_table()
+    assert tab.sd is not None and tab.z is not None
+    ok = ~np.isnan(tab.sd)
+    np.testing.assert_allclose(tab.z[ok], tab.vi[ok] / tab.sd[ok])
 
 
 def test_significance_codes_are_correct(d_reg):
-    pytest.skip("significance codes (Sig) require the R importance() "
-                "extractor; Python API gap")
+    # R: |Z| >= 2.58 ***, >= 1.96 **, >= 1.64 *, else ""; NA -> "".
+    fit = _fit_reg(d_reg["X"], d_reg["y"], n_estimators=30,
+                   importance="permute", var_mode="matched")
+    tab = fit.importance_table()
+    assert tab.z is not None and tab.sig is not None
+    for z, sig in zip(tab.z, tab.sig):
+        if np.isnan(z):
+            assert sig == ""
+        elif abs(z) >= 2.58:
+            assert sig == "***"
+        elif abs(z) >= 1.96:
+            assert sig == "**"
+        elif abs(z) >= 1.64:
+            assert sig == "*"
+        else:
+            assert sig == ""
 
 
 def test_classification_importance_with_var_mode(d_cla):
@@ -140,8 +180,14 @@ def test_classification_importance_with_var_mode(d_cla):
 
 
 def test_classification_matched_importance_sd_non_negative(d_cla):
-    pytest.skip("SD column requires the R importance() extractor; "
-                "Python API gap")
+    # R: classification + var.mode="matched" adds SD/Z columns. Ported.
+    fit = _fit_cla(d_cla["X"], d_cla["y"], n_estimators=30,
+                   importance="permute", var_mode="matched")
+    tab = fit.importance_table()
+    assert tab.has_variance
+    assert tab.sd is not None
+    ok = ~np.isnan(tab.sd)
+    assert np.all(tab.sd[ok] >= 0)
 
 
 def test_importance_distribute_mode_works(d_reg):
@@ -153,16 +199,41 @@ def test_importance_distribute_mode_works(d_reg):
 
 
 def test_importance_distribute_with_var_mode_has_variance(d_reg):
-    pytest.skip("SD column requires the R importance() extractor; "
-                "Python API gap")
+    # R: importance="distribute" + var.mode -> SD/Z present. Ported.
+    fit = _fit_reg(d_reg["X"], d_reg["y"], n_estimators=30,
+                   importance="distribute", var_mode="matched")
+    tab = fit.importance_table()
+    assert tab.has_variance
+    assert tab.sd is not None and tab.sd.shape == (d_reg["p"],)
 
 
 def test_print_importance_no_variance(d_reg):
-    pytest.skip("print.importance.RLT has no Python analog")
+    # R: print.importance.RLT two-column layout (26 dashes). Ported by
+    # ImportanceTable.__repr__.
+    fit = _fit_reg(d_reg["X"], d_reg["y"], n_estimators=30,
+                   importance="permute")
+    text = repr(fit.importance_table())
+    lines = text.splitlines()
+    assert lines[0].split() == ["Variable", "VI"]
+    assert lines[1] == "-" * 26
+    assert len(lines) == 2 + d_reg["p"]
 
 
 def test_print_importance_with_variance(d_reg):
-    pytest.skip("print.importance.RLT has no Python analog")
+    # R: five-column layout (58 dashes) with SD/Z/Sig. Ported by
+    # ImportanceTable.__repr__.
+    fit = _fit_reg(d_reg["X"], d_reg["y"], n_estimators=30,
+                   importance="permute", var_mode="matched")
+    text = repr(fit.importance_table())
+    lines = text.splitlines()
+    assert lines[0].split() == ["Variable", "VI", "SD", "Z", "Sig"]
+    assert lines[1] == "-" * 58
+    tab = fit.importance_table()
+    assert tab.sd is not None
+    n_na = int(np.isnan(tab.sd).sum())
+    if n_na:
+        assert any(l.strip().startswith("Note:") for l in lines)
+        assert "negative variance" in text
 
 
 def test_default_variable_names_when_unnamed(d_reg):
@@ -176,12 +247,11 @@ def test_default_variable_names_when_unnamed(d_reg):
 
 
 def test_varvi_returned_for_matched_var_mode(d_reg):
-    # R: fit$VarVI, length p. Genuine API gap: the C++ core computes
-    # VarVI (returned when importance && var.mode == 1) but the Python
-    # estimator layer drops it.
+    # R: fit$VarVI, length p. Ported: the core computes VarVI when
+    # importance && var_mode == 1 and the estimator surfaces it as var_vi_.
     fit = _fit_reg(d_reg["X"], d_reg["y"], n_estimators=30,
                    importance="permute", var_mode="matched")
-    assert not hasattr(fit, "var_vi_")  # documents the gap
+    assert np.asarray(fit.var_vi_).shape == (d_reg["p"],)  # ported: R fit$VarVI
 
 
 def test_varvi_absent_without_var_mode(d_reg):

@@ -5,8 +5,9 @@ Param map: param.control list(var.mode=..., band.grid.size=..., keep.all=...)
 kwargs; ncores->n_jobs; seed->random_state; get.surv.band(pred, subject=i)
 -> get_surv_band(model, X, i=i) (i is 1-based like R when positive).
 
-API gaps vs R (documented in-line): VarVI and the importance() SD/Z/Sig
-extractor are not surfaced; NA-in-y / invalid censor values do not raise.
+API gaps vs R (documented in-line): none remaining — VarVI, the
+importance_table() SD/Z/Sig extractor, and NA/censor validation are all
+ported (formerly gaps).
 """
 import numpy as np
 import pytest
@@ -70,15 +71,21 @@ def test_band_grid_size_reduces_timepoints(d):
 # --- VarVI / importance extractor ------------------------------------------------
 
 def test_varvi_returned_for_survival_matched(d):
-    # R: fit$VarVI, length p. API gap: VarVI computed in core but dropped
-    # by the Python estimator layer.
+    # R: fit$VarVI, length p.
     fit = _fit(d["X"], d["y"], n_estimators=30, importance="permute",
                var_mode="matched")
-    assert not hasattr(fit, "var_vi_")  # documents the gap
+    assert np.asarray(fit.var_vi_).shape == (d["p"],)  # ported (was API gap)
 
 
 def test_importance_shows_sd_z_sig_for_survival_matched(d):
-    pytest.skip("no importance() SD/Z/Sig extractor in the Python API")
+    # R: importance(fit) shows SD/Z/Sig for matched survival forests.
+    # Ported via importance_table().
+    fit = _fit(d["X"], d["y"], n_estimators=30, importance="permute",
+               var_mode="matched")
+    tab = fit.importance_table()
+    assert tab.has_variance
+    assert tab.sd is not None and tab.z is not None and tab.sig is not None
+    assert len(tab.sig) == d["p"]
 
 
 def test_varvi_not_returned_for_ij_mode(d):
@@ -115,16 +122,26 @@ def test_keep_all_stores_fitted_forest_in_fit_object(d):
 # --- input validation ---------------------------------------------------------------
 
 def test_na_in_y_produces_error(d):
-    # R: expect_error on NA in y. API gap: the Python layer accepts NaN
-    # times without complaint (no NA validation on the survival response).
-    pytest.xfail("Python layer does not validate NaN in survival y "
-                 "(validation gap vs R)")
+    # R: expect_error on NA in y. Ported: NaN times raise ValueError (R's
+    # NA idiom in numpy is NaN). Uses the (time, event) tuple path.
+    y_time = d["y"]["time"].copy()
+    y_time[4] = np.nan
+    y_event = d["y"]["event"].astype(float)
+    with pytest.raises(ValueError, match="NA/Inf not permitted in y"):
+        RLT_surv(n_estimators=30, n_jobs=2, verbose=0).fit(
+            d["X"], (y_time, y_event))
 
 
 def test_na_in_censor_produces_error(d):
-    # R: expect_error on NA in censor. The Python structured dtype uses a
-    # bool 'event' field, which cannot represent NA at all.
-    pytest.skip("bool event field cannot represent NA; no Python analog")
+    # R: expect_error on NA in censor. The structured bool 'event' field
+    # cannot represent NaN, but the (time, event) tuple path passes floats
+    # and now validates: NaN censor raises (ported).
+    y_time = d["y"]["time"].copy()
+    y_event = d["y"]["event"].astype(float)
+    y_event[4] = np.nan
+    with pytest.raises(ValueError, match="NA not permitted in censor"):
+        RLT_surv(n_estimators=30, n_jobs=2, verbose=0).fit(
+            d["X"], (y_time, y_event))
 
 
 def test_mismatched_dimensions_produce_error():
@@ -139,10 +156,14 @@ def test_mismatched_dimensions_produce_error():
 
 
 def test_invalid_censor_values_produce_error(d):
-    # R: censor values outside {0, 1} error. API gap: the Python layer
-    # coerces event to int and does not validate the value set.
-    pytest.xfail("Python layer does not validate event/censor value set "
-                 "(validation gap vs R)")
+    # R: censor values outside {0, 1} error. Ported via the (time, event)
+    # tuple path (the structured bool dtype would coerce 2 -> True).
+    y_time = d["y"]["time"].copy()
+    y_event = d["y"]["event"].astype(float)
+    y_event[4] = 2.0
+    with pytest.raises(ValueError, match="censor must be 0 or 1"):
+        RLT_surv(n_estimators=30, n_jobs=2, verbose=0).fit(
+            d["X"], (y_time, y_event))
 
 
 # --- confidence bands ----------------------------------------------------------------

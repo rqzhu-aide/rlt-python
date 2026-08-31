@@ -74,10 +74,10 @@ def test_alpha_05_stores_correctly(d):
 
 
 def test_alpha_above_half_is_clamped(d):
-    # R: alpha = 0.9 is clamped to 0.5 in fit$parameters. Genuine API gap:
-    # the Python layer stores alpha verbatim (no clamping to [0, 0.5]).
-    pytest.xfail("Python layer does not clamp alpha > 0.5 to 0.5 "
-                 "(validation gap vs R)")
+    # R: alpha = 0.9 is clamped to 0.5 in fit$parameters (RLT.r
+    # alpha = max(0, min(alpha, 0.5))); the Python layer now mirrors this.
+    fit = _fit(d["X"], d["y"], n_estimators=30, alpha=0.9)
+    assert fit.params_.alpha == 0.5
 
 
 @pytest.mark.parametrize("rule", ["logrank", "suplogrank", "coxgrad"])

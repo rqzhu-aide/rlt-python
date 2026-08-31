@@ -91,9 +91,8 @@ def test_distribute_with_matched_var_mode():
                    var_mode="matched", n_jobs=2,
                    random_state=111).fit(X, y)
     assert np.asarray(fit.varimp_).shape == (5,)
-    # R: "VarVI" %in% names(fit), length 5. API gap: VarVI is computed by
-    # the core but dropped by the Python estimator layer.
-    assert not hasattr(fit, "var_vi_")  # documents the gap
+    # R: "VarVI" %in% names(fit), length 5.
+    assert np.asarray(fit.var_vi_).shape == (5,)  # ported (was API gap)
 
 
 def test_distribute_with_linear_combination_splits():

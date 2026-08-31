@@ -125,44 +125,43 @@ def test_importance_false_returns_no_varimp():
         _ = fit.feature_importances_
 
 
-# TODO: Python API has no var.prob parameter (R: var.prob)
-@pytest.mark.xfail(reason="var.prob not available in Python API", strict=True)
+# Ported: R's var.prob maps to the fit-time var_prob kwarg (sklearn idiom).
 def test_var_prob_is_accepted_without_error():
     d = generate_survival_data(n=80, p=10, seed=1)
     vp = np.full(d["p"], 1.0 / d["p"])
-    RLT_surv(n_estimators=30, var_prob=vp, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_surv(n_estimators=30, n_jobs=2, verbose=0).fit(
+        d["X"], d["y"], var_prob=vp)
+    assert np.isfinite(fit.oob_error_)
 
 
-# TODO: Python API has no obs.w parameter (R: obs.w)
-@pytest.mark.xfail(reason="obs.w not available in Python API", strict=True)
+# Ported: R's obs.w maps to the sklearn sample_weight fit kwarg.
 def test_obs_w_is_accepted_without_error():
     d = generate_survival_data(n=80, p=10, seed=1)
     w = np.random.default_rng(1).random(d["n"])
-    RLT_surv(n_estimators=30, obs_weight=w, n_jobs=2, verbose=0).fit(d["X"], d["y"])
+    fit = RLT_surv(n_estimators=30, n_jobs=2, verbose=0).fit(
+        d["X"], d["y"], sample_weight=w)
+    assert np.isfinite(fit.oob_error_)
 
 
-# TODO: Python API does not validate NaN in survival times (R errors); the fit
-# silently accepts NaN y values.
-@pytest.mark.xfail(reason="NaN in y not rejected by Python API", strict=True)
+# Ported: NaN in survival times is rejected, mirroring R's
+# "NA not permitted in y" (R's NA idiom in numpy is NaN).
 def test_na_in_y_produces_error():
     d = generate_survival_data(n=80, p=10, seed=1)
     d["y"]["time"][4] = np.nan
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="NA/Inf not permitted in y"):
         RLT_surv(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], d["y"])
 
 
-# TODO: R tests NA in the censoring indicator; numpy's boolean ("?") dtype
-# cannot represent NA, so this scenario cannot be constructed in the Python API.
-@pytest.mark.skip(reason="NA in censor not representable in bool structured dtype")
+# Ported: R tests NA in the censoring indicator. numpy's boolean ("?")
+# dtype cannot represent NA, but the (time, event) tuple path passes event
+# as floats, where NaN is expressible — validated there (R's NA idiom).
 def test_na_in_censor_produces_error():
     d = generate_survival_data(n=80, p=10, seed=1)
     censor_na = d["censor"].astype(float)
     censor_na[4] = np.nan
-    y = np.empty(d["n"], dtype=[("event", "?"), ("time", "<f8")])
-    y["event"] = censor_na.astype(bool)
-    y["time"] = d["y"]["time"]
-    with pytest.raises(ValueError):
-        RLT_surv(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], y)
+    with pytest.raises(ValueError, match="NA not permitted in censor"):
+        RLT_surv(n_estimators=30, n_jobs=2, verbose=0).fit(
+            d["X"], (d["y"]["time"], censor_na))
 
 
 def test_mismatched_dimensions_produce_error():
@@ -175,17 +174,15 @@ def test_mismatched_dimensions_produce_error():
         RLT_surv(n_estimators=30, n_jobs=2, verbose=0).fit(X, y)
 
 
-# TODO: Python API coerces arbitrary integer event codes (e.g. 2) to bool
-# instead of rejecting invalid censor values as R does.
-@pytest.mark.xfail(reason="invalid censor values not rejected by Python API", strict=True)
+# Ported: R rejects censor values outside {0, 1} ("censor must be 0 or 1").
+# The structured bool dtype coerces 2 -> True, so this is exercised via the
+# (time, event) tuple path where the value set is preserved.
 def test_invalid_censor_values_produce_error():
     d = generate_survival_data(n=80, p=10, seed=1)
     censor_bad = np.random.default_rng(7).choice([0, 1, 2], size=d["n"])
-    y = np.empty(d["n"], dtype=[("event", "?"), ("time", "<f8")])
-    y["event"] = censor_bad
-    y["time"] = d["y"]["time"]
-    with pytest.raises(ValueError):
-        RLT_surv(n_estimators=30, n_jobs=2, verbose=0).fit(d["X"], y)
+    with pytest.raises(ValueError, match="censor must be 0 or 1"):
+        RLT_surv(n_estimators=30, n_jobs=2, verbose=0).fit(
+            d["X"], (d["y"]["time"], censor_bad.astype(float)))
 
 
 def test_subsample_resample_replace_false_works_for_survival():
