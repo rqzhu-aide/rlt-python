@@ -579,6 +579,14 @@ static py::dict ClaUniCombForestPred(const py::list& splitvar,
   py::dict out;
   out["Prediction"] = uvec2np(Pred);
   out["Prob"] = mat2np(Prob);
+
+  if (var_mode == 1)
+    out["Variance"] = mat2np(compute_cla_matched_variance(PredAll, N, nclass, ntrees));
+  else if (var_mode == 2)
+    out["Variance"] = mat2np(compute_cla_ij_variance(PredAll, ObsTrack, N, nclass));
+  else if (var_mode == 3)
+    out["Variance"] = mat2np(compute_cla_jack_variance(PredAll, ObsTrack, N, nclass));
+
   if (keep_all) {
     py::array_t<double> all({(py::ssize_t)N, (py::ssize_t)ntrees,
                              (py::ssize_t)nclass});
@@ -1126,6 +1134,14 @@ static py::dict ClaUniForestPred(const py::list& splitvar,
   py::dict out;
   out["Prediction"] = uvec2np(Pred);
   out["Prob"] = mat2np(Prob);
+
+  if (var_mode == 1)
+    out["Variance"] = mat2np(compute_cla_matched_variance(PredAll, N, nclass, ntrees));
+  else if (var_mode == 2)
+    out["Variance"] = mat2np(compute_cla_ij_variance(PredAll, ObsTrack, N, nclass));
+  else if (var_mode == 3)
+    out["Variance"] = mat2np(compute_cla_jack_variance(PredAll, ObsTrack, N, nclass));
+
   if (keep_all) {
     // return per-subject layout: (N, ntrees, nclass)
     py::array_t<double> all({(py::ssize_t)N, (py::ssize_t)ntrees,

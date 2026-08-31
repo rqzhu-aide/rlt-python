@@ -87,7 +87,7 @@ def build_core_params(estimator, n: int, p: int, seed: int) -> CoreParams:
         "obs_track": bool(estimator.resample_track) or vm > 0,
         "var_mode": vm,
         "linear_comb": int(estimator.linear_comb),
-        "alpha": float(estimator.alpha),
+        "alpha": float(min(max(estimator.alpha, 0.0), 0.5)),
         "split_rule": 1,
         "linear_comb_method": 1,
         "embed_ntrees": int(estimator.embed_ntrees),
