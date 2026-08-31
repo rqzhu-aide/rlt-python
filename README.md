@@ -35,9 +35,9 @@ pip install .
 ### Regression
 
 ```python
-from rlt import RLTRegressor
+from rlt import RLT_reg
 
-model = RLTRegressor(n_estimators=500, random_state=42)
+model = RLT_reg(n_estimators=500, random_state=42)
 model.fit(X, y)                # sklearn API
 pred = model.predict(X)
 model.oob_error_               # out-of-bag MSE
@@ -47,9 +47,9 @@ model.feature_importances_
 ### Classification
 
 ```python
-from rlt import RLTClassifier
+from rlt import RLT_cla
 
-model = RLTClassifier(n_estimators=500)
+model = RLT_cla(n_estimators=500)
 model.fit(X, y)                # string labels fine
 prob = model.predict_proba(X)  # (n, n_classes)
 ```
@@ -58,11 +58,11 @@ prob = model.predict_proba(X)  # (n, n_classes)
 
 ```python
 import numpy as np
-from rlt import RLTSurvivalForest
+from rlt import RLT_surv
 
 y = np.empty(n, dtype=[("event", "?"), ("time", float)])  # sksurv convention
 y["event"], y["time"] = event, time
-model = RLTSurvivalForest(split_rule="logrank")
+model = RLT_surv(split_rule="logrank")
 model.fit(X, y)
 S = model.predict_survival_function(X)   # (n, T) survival curves
 model.score(X, y)                        # Harrell's c-index
@@ -71,10 +71,10 @@ model.score(X, y)                        # Harrell's c-index
 ### Reinforcement learning trees (the point of the package)
 
 ```python
-from rlt import RLTRegressor
+from rlt import RLT_reg
 
 # embedded-model variable selection + linear combination splits
-model = RLTRegressor(
+model = RLT_reg(
     n_estimators=100,        # R default under reinforcement
     linear_comb=2,           # combine 2 variables per split
     linear_comb_method="sir",  # or naive / lm / pca
@@ -90,10 +90,10 @@ the axis-aligned forest (see `tests/`).
 ### Variance estimation & confidence bands
 
 ```python
-model = RLTRegressor(n_estimators=2000, var_mode="matched")  # or "ij"/"jack"
+model = RLT_reg(n_estimators=2000, var_mode="matched")  # or "ij"/"jack"
 pred, var = model.predict_var(X)
 
-model = RLTSurvivalForest(n_estimators=2000, var_mode="matched")
+model = RLT_surv(n_estimators=2000, var_mode="matched")
 S, cov = model.predict_var(X_test)
 
 from rlt import get_surv_band

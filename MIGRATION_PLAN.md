@@ -26,8 +26,8 @@ Remaining (optional, post-0.2.0): macOS/Windows wheels via cibuildwheel;
    C++; survival bands got a NEW C++ tensor-product penalized B-spline
    smoother (`src/bindings/rlt_tp_smooth.cpp`) replacing mgcv `te(i,j)`,
    with GCV lambda selection — same statistical pipeline as R.
-3. **Full sklearn compatibility.** `RLTRegressor`/`RLTClassifier`/
-   `RLTSurvivalForest` on `BaseEstimator`; structured-array survival y;
+3. **Full sklearn compatibility.** `RLT_reg`/`RLT_cla`/
+   `RLT_surv` on `BaseEstimator`; structured-array survival y;
    `score()` = Harrell's c-index. Verified with `clone`.
 4. **Scope: regression, classification, survival only.**
 

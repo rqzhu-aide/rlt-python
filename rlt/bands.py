@@ -52,7 +52,7 @@ def get_surv_band(model, X, i=0, alpha=0.05, approach="naive", nsim=5000,
 
     Parameters
     ----------
-    model : fitted RLTSurvivalForest with var_mode != "none"
+    model : fitted RLT_surv with var_mode != "none"
     X : test covariates
     i : subject index (0 = all); 1-based like R when positive
     alpha : level or array of levels

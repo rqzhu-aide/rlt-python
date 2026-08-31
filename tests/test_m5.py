@@ -1,14 +1,14 @@
 """M5 tests: importance modes, kernels, and survival bands."""
 import numpy as np
 
-from rlt import RLTRegressor, RLTSurvivalForest, get_surv_band
+from rlt import RLT_reg, RLT_surv, get_surv_band
 from helpers import make_regression, make_survival
 
 
 def test_importance_modes():
     X, y = make_regression(n=250, p=6, seed=11)
     for imp in ("permute", "distribute"):
-        m = RLTRegressor(n_estimators=50, importance=imp, nsplit=2,
+        m = RLT_reg(n_estimators=50, importance=imp, nsplit=2,
                          random_state=5).fit(X, y)
         vi = m.feature_importances_
         assert vi.shape == (6,)
@@ -21,7 +21,7 @@ def test_importance_modes():
 
 def test_kernel_self_and_cross():
     X, y = make_regression(n=100, p=4, seed=12)
-    m = RLTRegressor(n_estimators=40, resample_track=True, nsplit=2,
+    m = RLT_reg(n_estimators=40, resample_track=True, nsplit=2,
                      random_state=5).fit(X, y)
     K = m.forest_kernel(X)
     assert K.shape == (100, 100)
@@ -38,7 +38,7 @@ def test_kernel_self_and_cross():
 
 def test_kernel_comb_forest():
     X, y = make_regression(n=80, p=4, seed=13)
-    m = RLTRegressor(n_estimators=20, linear_comb=2, nsplit=2,
+    m = RLT_reg(n_estimators=20, linear_comb=2, nsplit=2,
                      random_state=5).fit(X, y)
     K = m.forest_kernel(X)
     assert K.shape == (80, 80)
@@ -47,7 +47,7 @@ def test_kernel_comb_forest():
 
 def test_kernel_vs_train_requires_tracking():
     X, y = make_regression(n=60, p=3, seed=14)
-    m = RLTRegressor(n_estimators=5, random_state=1).fit(X, y)
+    m = RLT_reg(n_estimators=5, random_state=1).fit(X, y)
     try:
         m.forest_kernel(X[:5], X, vs_train=True)
         raised = False
@@ -58,7 +58,7 @@ def test_kernel_vs_train_requires_tracking():
 
 def test_surv_band_naive_and_smoothed():
     X, ys = make_survival(n=120, p=4, seed=15)
-    m = RLTSurvivalForest(n_estimators=100, var_mode="matched", nsplit=2,
+    m = RLT_surv(n_estimators=100, var_mode="matched", nsplit=2,
                           random_state=5).fit(X, ys)
     Xt = X[:4]
     S, cov = m.predict_var(Xt)
@@ -79,7 +79,7 @@ def test_surv_band_naive_and_smoothed():
 
 def test_surv_band_proportion_mode():
     X, ys = make_survival(n=100, p=3, seed=16)
-    m = RLTSurvivalForest(n_estimators=60, var_mode="matched", nsplit=2,
+    m = RLT_surv(n_estimators=60, var_mode="matched", nsplit=2,
                           random_state=5).fit(X, ys)
     b = get_surv_band(m, X[:2], i=0, approach="smoothed", k_mode="proportion",
                       k_prop=0.9, nsim=500, band_grid_size=15)

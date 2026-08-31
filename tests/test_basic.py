@@ -6,12 +6,12 @@ from sklearn.base import clone
 
 from helpers import make_classification, make_regression, make_survival
 
-from rlt import RLTClassifier, RLTRegressor, RLTSurvivalForest
+from rlt import RLT_cla, RLT_reg, RLT_surv
 
 
 def test_regressor_basic():
     X, y = make_regression(n=300, seed=1)
-    m = RLTRegressor(n_estimators=100, random_state=7).fit(X, y)
+    m = RLT_reg(n_estimators=100, random_state=7).fit(X, y)
     pred = m.predict(X)
     assert pred.shape == (300,)
     # in-sample forest should track the signal reasonably well
@@ -26,14 +26,14 @@ def test_regressor_basic():
 
 def test_regressor_reproducible():
     X, y = make_regression(n=150, seed=2)
-    a = RLTRegressor(n_estimators=50, random_state=11).fit(X, y).predict(X)
-    b = RLTRegressor(n_estimators=50, random_state=11).fit(X, y).predict(X)
+    a = RLT_reg(n_estimators=50, random_state=11).fit(X, y).predict(X)
+    b = RLT_reg(n_estimators=50, random_state=11).fit(X, y).predict(X)
     assert np.allclose(a, b)
 
 
 def test_classifier_basic():
     X, y = make_classification(n=300, seed=3)
-    m = RLTClassifier(n_estimators=100, random_state=7).fit(X, y)
+    m = RLT_cla(n_estimators=100, random_state=7).fit(X, y)
     labels = m.predict(X)
     assert labels.shape == (300,)
     assert set(np.unique(labels)).issubset(set(np.unique(y)))
@@ -43,14 +43,14 @@ def test_classifier_basic():
     acc = np.mean(labels == y)
     assert acc > 0.7
     # classes_ mapping preserved
-    m2 = RLTClassifier(n_estimators=30, random_state=1).fit(X, y.astype(str))
+    m2 = RLT_cla(n_estimators=30, random_state=1).fit(X, y.astype(str))
     assert set(m2.classes_) == {"0", "1"}
     assert set(m2.predict(X)) <= {"0", "1"}
 
 
 def test_classifier_feature_importances():
     X, y = make_classification(n=200, seed=4)
-    m = RLTClassifier(n_estimators=100, importance="distribute",
+    m = RLT_cla(n_estimators=100, importance="distribute",
                       random_state=5).fit(X, y)
     imp = m.feature_importances_
     assert imp.shape == (5,)
@@ -59,7 +59,7 @@ def test_classifier_feature_importances():
 
 def test_survival_basic():
     X, y = make_survival(n=300, seed=5)
-    m = RLTSurvivalForest(n_estimators=100, random_state=7).fit(X, y)
+    m = RLT_surv(n_estimators=100, random_state=7).fit(X, y)
     S = m.predict(X)
     assert S.shape == (300, m.timepoints_.shape[0])
     assert np.all(S <= 1.0 + 1e-12) and np.all(S > -1e-12)
@@ -73,8 +73,8 @@ def test_survival_basic():
 
 def test_survival_tuple_y():
     X, y = make_survival(n=150, seed=6)
-    m1 = RLTSurvivalForest(n_estimators=30, random_state=2).fit(X, y)
-    m2 = RLTSurvivalForest(n_estimators=30, random_state=2).fit(
+    m1 = RLT_surv(n_estimators=30, random_state=2).fit(X, y)
+    m2 = RLT_surv(n_estimators=30, random_state=2).fit(
         X, (y["time"], y["event"])
     )
     assert np.allclose(m1.predict(X), m2.predict(X))
@@ -84,14 +84,14 @@ def test_input_validation():
     X, y = make_regression(n=60, seed=7)
     X[0, 0] = np.nan
     with pytest.raises(ValueError):
-        RLTRegressor(n_estimators=10).fit(X, y)
+        RLT_reg(n_estimators=10).fit(X, y)
     with pytest.raises(ValueError):
-        RLTRegressor(n_estimators=10).fit(X[:50], y)
+        RLT_reg(n_estimators=10).fit(X[:50], y)
 
 
 def test_var_modes_regression():
     X, y = make_regression(n=200, seed=8)
-    m = RLTRegressor(n_estimators=100, resample_replace=False,
+    m = RLT_reg(n_estimators=100, resample_replace=False,
                      resample_prob=0.5, var_mode="matched",
                      importance="distribute", random_state=9).fit(X, y)
     pred, var = m.predict_var(X[:20])
@@ -103,7 +103,7 @@ def test_var_modes_regression():
 
 def test_var_modes_regression_ij():
     X, y = make_regression(n=200, seed=9)
-    m = RLTRegressor(n_estimators=100, var_mode="ij", resample_track=True,
+    m = RLT_reg(n_estimators=100, var_mode="ij", resample_track=True,
                      random_state=10).fit(X, y)
     pred, var = m.predict_var(X[:20])
     assert var.shape == (20,)

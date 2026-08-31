@@ -1,6 +1,6 @@
 """sklearn-compatible estimators for RLT forests.
 
-Provides RLTRegressor, RLTClassifier, and RLTSurvivalForest — Python
+Provides RLT_reg, RLT_cla, and RLT_surv — Python
 ports of the RLT R package's RegForest / ClaForest / SurvForest.
 """
 
@@ -218,7 +218,7 @@ class _BaseRLT(BaseEstimator):
 # regression
 # ----------------------------------------------------------------------------
 
-class RLTRegressor(_BaseRLT, RegressorMixin):
+class RLT_reg(_BaseRLT, RegressorMixin):
     """Reinforcement Learning Trees regression forest.
 
     Parameters
@@ -403,10 +403,10 @@ class RLTRegressor(_BaseRLT, RegressorMixin):
 # classification
 # ----------------------------------------------------------------------------
 
-class RLTClassifier(_BaseRLT, ClassifierMixin):
+class RLT_cla(_BaseRLT, ClassifierMixin):
     """Reinforcement Learning Trees classification forest.
 
-    Parameters mirror :class:`RLTRegressor`; classification-specific:
+    Parameters mirror :class:`RLT_reg`; classification-specific:
 
     linear_comb_method : str, default="default"
         Loadings: "lda" (default), "naive", "random", "logistic".
@@ -557,7 +557,7 @@ class RLTClassifier(_BaseRLT, ClassifierMixin):
 # survival
 # ----------------------------------------------------------------------------
 
-class RLTSurvivalForest(_BaseRLT):
+class RLT_surv(_BaseRLT):
     """Reinforcement Learning Trees survival forest.
 
     y must be a structured array with fields ``event`` (0/1) and ``time``
